@@ -1,0 +1,48 @@
+name: skill-hub-community
+include:
+  - path: compose.dashboard.yaml
+services:
+  hub-dashboard:
+    environment:
+      SKILL_HUB_CORE_HOST: skill-hub
+    depends_on:
+      skill-hub:
+        condition: service_healthy
+  skill-hub:
+    build:
+      context: ./deploy/skill-hub
+    init: true
+    ports:
+      - '127.0.0.1:${SKILL_HUB_PORT:-8765}:8765'
+    environment:
+      SKILL_HUB_ROOT: /hub
+      SKILL_HUB_INDEX_PATH: /tmp/catalog/skill-index.db
+      SKILL_HUB_MATERIALIZE_ROOT: /tmp/materialized
+      SKILL_HUB_TELEMETRY_ROOT: /tmp/telemetry
+      SKILL_HUB_DISABLE_BROKER: '1'
+    volumes:
+      - type: bind
+        source: ${SKILL_HUB_CONTENT_DIR:-./examples/hub}
+        target: /hub
+        read_only: true
+        bind:
+          create_host_path: false
+    read_only: true
+    tmpfs:
+      - /tmp:size=268435456,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    cpus: 1
+    pids_limit: 64
+    healthcheck:
+      test: ['CMD', 'python', '-c', "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health',timeout=3).read()"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: '3'

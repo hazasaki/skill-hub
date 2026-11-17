@@ -1,0 +1,3 @@
+# Compatibility entry point. Prefer `docker compose up --build -d` at repository root.
+include:
+  - path: ../../compose.yaml

@@ -1,0 +1,13 @@
+**
+!src/
+!src/hub-dashboard/
+!src/hub-dashboard/**
+!deploy/
+!deploy/hub-dashboard/
+!deploy/hub-dashboard/container_entry.py
+!deploy/skill-hub/
+!deploy/skill-hub/app/
+!deploy/skill-hub/app/**
+**/__pycache__/**
+**/test_*.py
+**/*.pyc

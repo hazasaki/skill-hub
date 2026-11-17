@@ -1,0 +1,12 @@
+**
+!Dockerfile
+!requirements.txt
+!serve.py
+!serve_core.py
+!app/
+!app/*.py
+!rust/
+!rust/near.rs
+
+!rust/metadata.rs
+!rust/refs.rs

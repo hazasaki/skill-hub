@@ -1,0 +1,209 @@
+{
+  "content": "Git blob bytes of Python app modules and Rust sources",
+  "files": [
+    {
+      "file": "deploy/skill-hub/app/build_graph_projection.py",
+      "sha256": "d1a38a1bd713098f26d927e1190573393497f1ae27ee8e6f164d3b5a11021095"
+    },
+    {
+      "file": "deploy/skill-hub/app/catalog_cleanup.py",
+      "sha256": "63b9988a71d46e7e84f5d42daf534642b06ce3c8fbf274a65488222b5c38aabf"
+    },
+    {
+      "file": "deploy/skill-hub/app/catalog_ingest.py",
+      "sha256": "e2e14b2cb01c3d38cfeb02627fa741729e6747ea498941610d3fd8cbf1940831"
+    },
+    {
+      "file": "deploy/skill-hub/app/catalog_maintenance.py",
+      "sha256": "694bc82b62e24a96464b90c2b6e72c6dfa8f127e1c0214866b4e758afba33167"
+    },
+    {
+      "file": "deploy/skill-hub/app/credential_mask.py",
+      "sha256": "ff78c27ae17e73debd14376179e5e792440ae463dd20bf2f860c81991780e7ae"
+    },
+    {
+      "file": "deploy/skill-hub/app/decision_contract.py",
+      "sha256": "2f1192b4b966573a4ef66815e0897814ae9e16bdf48ad411de57162f06866123"
+    },
+    {
+      "file": "deploy/skill-hub/app/decision_resolver.py",
+      "sha256": "33f434d7c61142a3f8c585d8c9a03358aa10c280f65aba709c49f35dd143c76d"
+    },
+    {
+      "file": "deploy/skill-hub/app/elephant_runtime.py",
+      "sha256": "5847b374e35672e353c9871822d0315ade74990fcb1abeba876b39252c0444b3"
+    },
+    {
+      "file": "deploy/skill-hub/app/elephant_shadow.py",
+      "sha256": "7073033b8bd21896d3beeadea385f6f756c63a0a152b24a44768a7503535afec"
+    },
+    {
+      "file": "deploy/skill-hub/app/github_intake.py",
+      "sha256": "19a1a03412b90bcdcb9b7b008b3e0133c3b1a127bbf1f2bc1690b8f71063732a"
+    },
+    {
+      "file": "deploy/skill-hub/app/hub_health.py",
+      "sha256": "8eaa0668251cbf3925902b6ecaf8fa8e739392f97bfd528949164184e90cb965"
+    },
+    {
+      "file": "deploy/skill-hub/app/hub_manual_telemetry.py",
+      "sha256": "2c8df96b014b4e2a53f75347bfa351a68367c9f1fbe19754b62f60d446ddb03e"
+    },
+    {
+      "file": "deploy/skill-hub/app/hub_sync.py",
+      "sha256": "37c3378abb6222e2c5e637d72488e8d07c899c3547747e26b3c7dbd80e3eb05d"
+    },
+    {
+      "file": "deploy/skill-hub/app/hub_telemetry.py",
+      "sha256": "b5370179888a9ac8b8da98c1c6e5fa0dc4135751bf0fd1ef003bc484bcc2764b"
+    },
+    {
+      "file": "deploy/skill-hub/app/hub_tiering.py",
+      "sha256": "a57dd161afbbf5bfa0dce0840945b18260ac7d2e2d1925af56f8dc55d3fc927f"
+    },
+    {
+      "file": "deploy/skill-hub/app/mcp_hub_broker.py",
+      "sha256": "90bced48e5f744f8e7bbbf3b1255cd20628faf17da1d5b5cba3b81c39622fabe"
+    },
+    {
+      "file": "deploy/skill-hub/app/metadata_hits.py",
+      "sha256": "3e18105db66bee6a4394717d35b017c5acd5f25e7248fd948fb746dba9c3dd69"
+    },
+    {
+      "file": "deploy/skill-hub/app/native_adapter.py",
+      "sha256": "6a3604cb8a9e002f296d3e6d718dccd6ae03ec810a0e310c2f6a8bf4d947f975"
+    },
+    {
+      "file": "deploy/skill-hub/app/policy_gate.py",
+      "sha256": "5d8d0be7ab0113a90f6953378406a2c27b692def670c208a1bff30c5dd45a9b5"
+    },
+    {
+      "file": "deploy/skill-hub/app/portable_paths.py",
+      "sha256": "cc09ff825ddb0f189c4afa841a75f7ee5cfa14fb559448ce78010a7a1d60f93c"
+    },
+    {
+      "file": "deploy/skill-hub/app/probe_graph_temporal.py",
+      "sha256": "3505d7338c0f41a861998d3b33f10c5b3cdf705f5cb362797e1d922ac3714188"
+    },
+    {
+      "file": "deploy/skill-hub/app/publish_batch.py",
+      "sha256": "1d1f080818d8bfb8578b6cfbb3d3e18fc4e99c4e95618cb22d62285131e7463e"
+    },
+    {
+      "file": "deploy/skill-hub/app/ranking_diversity.py",
+      "sha256": "f9f41ae6084735e862fdfd5c55441f8287c0078655c15f281035b04a2d2a4f4d"
+    },
+    {
+      "file": "deploy/skill-hub/app/resource_hooks.py",
+      "sha256": "abf03570b54e1c548b00ded3216147d42c24a8359bc3541475a4ee4187ed343e"
+    },
+    {
+      "file": "deploy/skill-hub/app/retrieval_fusion.py",
+      "sha256": "84a9508e9428c70b048c5804dea41fd04087cac9fcc53387b6e0aec2e11bd1a0"
+    },
+    {
+      "file": "deploy/skill-hub/app/retrieval_graph.py",
+      "sha256": "53d120b06c6865bb5f689d8109fcdaa5c01e0e2147156b11f104ac3670a45ca7"
+    },
+    {
+      "file": "deploy/skill-hub/app/retrieval_metadata.py",
+      "sha256": "18eb0b91ebe62299a6927c277dc11c94b8d108c8f26f5908e7232b877ec0723c"
+    },
+    {
+      "file": "deploy/skill-hub/app/retrieval_projection.py",
+      "sha256": "9aaf2954ce173f8fdffa1284abcb9f100a6cb1980087ab85aa9c52616a0f7fd7"
+    },
+    {
+      "file": "deploy/skill-hub/app/retrieval_semantic.py",
+      "sha256": "02b728843d64ae8834dbc56ef94b7ab3b9274492da900f30e4f34f9b2c8e054b"
+    },
+    {
+      "file": "deploy/skill-hub/app/retrieval_temporal.py",
+      "sha256": "698159c32a39be692a48ce5be6ad0a2ce41f62bba75567f95ec3f5aa6904e432"
+    },
+    {
+      "file": "deploy/skill-hub/app/router_preparation.py",
+      "sha256": "8f548b121a10deb8503b28fcb5dccc67995853cd6d620b2a129ff19cdeadfddf"
+    },
+    {
+      "file": "deploy/skill-hub/app/routing_dataset.py",
+      "sha256": "f8ed5027c0a07c9d1eb9409cfc40bed625468377904e1207ec3a2f04b6d38327"
+    },
+    {
+      "file": "deploy/skill-hub/app/rust_near.py",
+      "sha256": "5f9d49b7944131ac9088d30cb6d5402ed4fd01e3fc91938bfc349dc0e5724209"
+    },
+    {
+      "file": "deploy/skill-hub/app/rust_refs.py",
+      "sha256": "c78081b0481df1fdbd86df3e6688f22f7d0f9ffdc3b61e636b9a62485b931cf2"
+    },
+    {
+      "file": "deploy/skill-hub/app/shared_resources.py",
+      "sha256": "c459164bf95c86b5db65289b86a93dd444149316970924edf1eb75c7754451be"
+    },
+    {
+      "file": "deploy/skill-hub/app/shortlist_runtime.py",
+      "sha256": "b9cd8fa0b15c85dec2ea3498b20e8587c2e0a810a7035fa598953214a7132309"
+    },
+    {
+      "file": "deploy/skill-hub/app/skill_index.py",
+      "sha256": "733473cd9d09a152cc3deb4e548d7dd78c31e1d9677a11d1da0e647024ee4d1a"
+    },
+    {
+      "file": "deploy/skill-hub/app/skill_mcp.py",
+      "sha256": "939e7b1f9822491c9f11625fb58d53316008baba1cf2fa7c417e88aaff587398"
+    },
+    {
+      "file": "deploy/skill-hub/app/skill_quality.py",
+      "sha256": "06c361750b00798a102a9f6ffcb1fc710ff1c44b1073bc48dff293b3e88723ba"
+    },
+    {
+      "file": "deploy/skill-hub/app/skill_quality_binding.py",
+      "sha256": "4da05ef6801adde1fd441a61e1d67cca39c6323ad7c1c07156aa23e21109293c"
+    },
+    {
+      "file": "deploy/skill-hub/app/skill_quality_round02_probe.py",
+      "sha256": "2a132e597d2072c3cc577b19d422d019ec4bac0c4e0f3c8aa5d5ad0126f6bf61"
+    },
+    {
+      "file": "deploy/skill-hub/app/skill_reflex_graph.py",
+      "sha256": "49b74e055ceaa4062ad330c6116ec504176b7f772db7226e81bcf8cf755a6265"
+    },
+    {
+      "file": "deploy/skill-hub/app/skill_replay_attribution.py",
+      "sha256": "480e2aeb8f37eea82595be59ab6a744877c7d48218dc4dc13ba465fc3a97ba9a"
+    },
+    {
+      "file": "deploy/skill-hub/app/skill_replay_fixtures.py",
+      "sha256": "2ab2a7dcdf4ba5e1373598927f7a57d8652c5d1d2da2ad171631db98e727b226"
+    },
+    {
+      "file": "deploy/skill-hub/app/skill_replay_observe.py",
+      "sha256": "d4351d80cd8635f956b0da619924e3f463d0dc134299cbf9271d817bdadf6195"
+    },
+    {
+      "file": "deploy/skill-hub/app/skill_replay_publish.py",
+      "sha256": "63228a4edfe82480d16d9174cd48550a1dec3078b7db94ea16adad1c1c470a65"
+    },
+    {
+      "file": "deploy/skill-hub/app/skill_replay_runner.py",
+      "sha256": "7889a72b7c6c00459c7c91af0bc382f744cb453b6c71e095a3212287d76882cf"
+    },
+    {
+      "file": "deploy/skill-hub/app/test_publish_batch.py",
+      "sha256": "e5687547de253397f6d69e681d8eb71109c0366daf471b1b3b1cc9e24d4f4c19"
+    },
+    {
+      "file": "deploy/skill-hub/rust/metadata.rs",
+      "sha256": "17f687822f81eca5b7c232fbfea2bdf84a8661c32459f7c534e3ef128e4118c1"
+    },
+    {
+      "file": "deploy/skill-hub/rust/near.rs",
+      "sha256": "fe4c0810b88e26e9d4d322f12a48988618172182364978dbb0e96c3912c6885d"
+    },
+    {
+      "file": "deploy/skill-hub/rust/refs.rs",
+      "sha256": "1c3d7f6c238a1a1002589e041cd0c2f8f46389d00828a87b4172200ddec979c6"
+    }
+  ]
+}

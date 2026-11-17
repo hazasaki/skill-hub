@@ -1,0 +1,17 @@
+name: Quickstart
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose up --build -d --wait --wait-timeout 120
+      - run: docker compose exec -T skill-hub python - < scripts/check_mcp.py
+      - run: curl --fail --silent http://127.0.0.1:8769/ > /dev/null
+      - if: failure()
+        run: docker compose logs --tail 100
+      - if: always()
+        run: docker compose down -v

@@ -1,0 +1,4 @@
+# Standalone dashboard entry; root compose also includes this service.
+include:
+  - path: ../../compose.dashboard.yaml
+    project_directory: ../..

@@ -1,0 +1,56 @@
+# Portable dashboard
+
+The bundled Vietnamese dashboard browses skills and prompts, searches full text,
+inspects resource bodies, and stages imports in its own quarantine. It builds its
+catalog from the same local Markdown directory as the MCP service on every start.
+No private database, snapshot bundle, API key, or native host configuration is
+required. Credentials found in resource text are masked before API output.
+
+From the repository root:
+
+```sh
+docker compose -f compose.dashboard.yaml config --quiet
+docker compose -f compose.dashboard.yaml up -d --build
+```
+
+Open [the dashboard](http://127.0.0.1:8769). The root Compose file starts it alongside
+Skill Hub. To use a different content tree, set `SKILL_HUB_CONTENT_DIR` to a folder
+containing `skills/NAME/SKILL.md` and optional `prompts/`. Set `HUB_DASHBOARD_PORT`
+when 8769 is occupied; Host/Origin checks use that same port. Recreate the service
+after changing either setting. Restart to rebuild the catalog after editing files.
+
+Content is mounted read-only. Catalog construction uses temporary container
+storage; settings and quarantine persist in the `dashboard-state` named volume.
+Importing a batch here stages it only. To make resources available to MCP, add
+reviewed Markdown to your content directory and restart both services. The legacy
+CLI publication command shown in the intake panel requires an explicitly built
+catalog and a separately configured publication overlay.
+
+The root stack sets `SKILL_HUB_CORE_HOST=skill-hub` for health and routing requests.
+The standalone dashboard defaults to loopback inside its container; an absent MCP
+service therefore returns unavailable promptly. This target is operator configuration,
+never a browser-supplied address. When running just
+the dashboard, routing/semantic requests and health probes are unavailable.
+Native agent/plugin configuration, telemetry, graph projections and historical
+quality receipts are not bundled; absent sources are shown as unavailable. Static
+quality findings are heuristics rather than security approval. The container
+healthcheck verifies HTTP availability only.
+
+This is a local single-user console. Keep the loopback binding; it has no public
+multi-user authentication. To stop it without changing persistent state:
+
+```sh
+docker compose -f compose.dashboard.yaml stop hub-dashboard
+```
+
+For an existing private installation, `prepare_sources.py`, `attach_reviews.py`,
+and `validate_inputs` remain available for explicitly prepared sanitized snapshots.
+The public container no longer mounts or automatically reads those bundles.
+
+Focused checks (with the repository Python dependencies installed):
+
+```sh
+python -B -m unittest discover -s src/hub-dashboard -q
+python -B -m unittest discover -s deploy/hub-dashboard -q
+node src/hub-dashboard/test_intake_ui.js
+```
