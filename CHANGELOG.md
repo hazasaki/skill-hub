@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Adaptive routing scores candidates in stages of 24, 48 and 96. Agents can choose from a menu of up to 12 skills and 8 prompts. Loading an entry checks its permissions, dependencies and content hash.
+- The dashboard supports explicit resource selection and verified loading. The README illustrates the flow from catalog lookup to delivery.
+
 - Optional model routing can use Liquid D1 or Baseten. The default quickstart
   stays local and credential-free.
 - Model routing defaults to a dynamic candidate budget, with explicit baseline
