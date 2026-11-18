@@ -1,43 +1,53 @@
-<?xml version='1.0' encoding='utf-8'?>
-<svg aria-labelledby="title desc" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 560" role="img">
-  <title id="title">How Skill Hub routes a task</title>
-  <desc id="desc">Skills and prompts feed a SQLite catalog. The Hub retrieves candidates and ranks them with the configured decision model. The agent receives a menu and can finish or request selected entries. The Hub checks permissions, dependencies and hashes before delivering content.</desc>
-  <rect width="940" height="560" rx="22" fill="#171631" />
-  <text x="36" y="53" font-family="system-ui, sans-serif" font-size="32" font-weight="650" fill="#f1f0ff">How a task reaches the right instructions</text>
-  <rect x="36" y="94" width="250" height="118" rx="12" fill="#292748" stroke="#575378" />
-  <text x="52" y="129" font-family="system-ui, sans-serif" font-size="22" font-weight="650" fill="#9df1d1">Content library</text>
-  <text x="52" y="162" font-family="system-ui, sans-serif" font-size="17" font-weight="400" fill="#f1f0ff">Skill folders and prompts</text>
-  <text x="52" y="187" font-family="system-ui, sans-serif" font-size="17" font-weight="400" fill="#f1f0ff">Read-only content mount</text>
-  <rect x="345" y="94" width="250" height="118" rx="12" fill="#292748" stroke="#575378" />
-  <text x="361" y="129" font-family="system-ui, sans-serif" font-size="22" font-weight="650" fill="#9df1d1">Local catalog</text>
-  <text x="361" y="162" font-family="system-ui, sans-serif" font-size="17" font-weight="400" fill="#f1f0ff">SQLite index</text>
-  <text x="361" y="187" font-family="system-ui, sans-serif" font-size="17" font-weight="400" fill="#f1f0ff">Find candidate resources</text>
-  <rect x="654" y="94" width="250" height="118" rx="12" fill="#292748" stroke="#575378" />
-  <text x="670" y="129" font-family="system-ui, sans-serif" font-size="22" font-weight="650" fill="#9df1d1">Task routing</text>
-  <text x="670" y="162" font-family="system-ui, sans-serif" font-size="17" font-weight="400" fill="#f1f0ff">Rank for the task</text>
-  <text x="670" y="187" font-family="system-ui, sans-serif" font-size="17" font-weight="400" fill="#f1f0ff">Return IDs and hashes</text>
-  <rect x="654" y="300" width="250" height="118" rx="12" fill="#292748" stroke="#575378" />
-  <text x="670" y="335" font-family="system-ui, sans-serif" font-size="22" font-weight="650" fill="#9df1d1">Agent or dashboard</text>
-  <text x="670" y="368" font-family="system-ui, sans-serif" font-size="17" font-weight="400" fill="#f1f0ff">Inspect the menu</text>
-  <text x="670" y="393" font-family="system-ui, sans-serif" font-size="17" font-weight="400" fill="#f1f0ff">Choose zero or more</text>
-  <rect x="345" y="300" width="250" height="118" rx="12" fill="#292748" stroke="#575378" />
-  <text x="361" y="335" font-family="system-ui, sans-serif" font-size="22" font-weight="650" fill="#9df1d1">Verified load</text>
-  <text x="361" y="368" font-family="system-ui, sans-serif" font-size="17" font-weight="400" fill="#f1f0ff">Check access and deps</text>
-  <text x="361" y="393" font-family="system-ui, sans-serif" font-size="17" font-weight="400" fill="#f1f0ff">Match the pinned hashes</text>
-  <rect x="36" y="300" width="250" height="118" rx="12" fill="#292748" stroke="#575378" />
-  <text x="52" y="335" font-family="system-ui, sans-serif" font-size="22" font-weight="650" fill="#9df1d1">Resource contents</text>
-  <text x="52" y="368" font-family="system-ui, sans-serif" font-size="17" font-weight="400" fill="#f1f0ff">Return original text</text>
-  <text x="52" y="393" font-family="system-ui, sans-serif" font-size="17" font-weight="400" fill="#f1f0ff">Agent applies instructions</text>
-  <path d="M 286 153 h 48" fill="none" stroke="#a99cff" stroke-width="3" />
-  <polygon points="331,147 341,153 331,159" fill="#a99cff" />
-  <path d="M 595 153 h 48" fill="none" stroke="#a99cff" stroke-width="3" />
-  <polygon points="640,147 650,153 640,159" fill="#a99cff" />
-  <path d="M 779 212 v 76" fill="none" stroke="#a99cff" stroke-width="3" />
-  <polygon points="773,285 779,296 785,285" fill="#a99cff" />
-  <path d="M 654 359 h -48" fill="none" stroke="#a99cff" stroke-width="3" />
-  <polygon points="609,353 599,359 609,365" fill="#a99cff" />
-  <path d="M 345 359 h -48" fill="none" stroke="#a99cff" stroke-width="3" />
-  <polygon points="300,353 290,359 300,365" fill="#a99cff" />
-  <text x="36" y="478" font-family="system-ui, sans-serif" font-size="22" font-weight="650" fill="#f1f0ff">Choosing zero ends the request without loading content.</text>
-  <text x="36" y="518" font-family="system-ui, sans-serif" font-size="18" font-weight="400" fill="#bebbd6">Direct catalog search works locally. Model-assisted ranking uses the configured provider.</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 560" role="img" aria-labelledby="title description">
+  <title id="title">Skill Hub architecture</title>
+  <desc id="description">Local skills and prompts feed a SQLite catalog. The Dashboard reads counts, resources and recorded relationships through its local API. The Hub can also rank candidates for a task. Its menu allows a client to decline or select items. A verified load checks access, dependencies and hashes before delivering source text.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 10 5 0 10Z" fill="#7c88a4"/>
+    </marker>
+  </defs>
+  <rect width="940" height="560" rx="22" fill="#111827"/>
+  <g font-family="system-ui, sans-serif">
+    <text x="36" y="56" fill="#f8fafc" font-size="31" font-weight="700">Skill Hub architecture</text>
+    <g fill="#1d293d" stroke="#465673">
+      <rect x="36" y="110" width="236" height="92" rx="12"/>
+      <rect x="352" y="110" width="236" height="92" rx="12"/>
+      <rect x="668" y="110" width="236" height="92" rx="12"/>
+      <rect x="352" y="282" width="236" height="92" rx="12"/>
+      <rect x="36" y="436" width="236" height="88" rx="12"/>
+      <rect x="352" y="436" width="236" height="88" rx="12"/>
+      <rect x="668" y="436" width="236" height="88" rx="12"/>
+    </g>
+    <g fill="none" stroke="#7c88a4" stroke-width="2" marker-end="url(#arrow)">
+      <path d="M276 156H342"/>
+      <path d="M592 156H658"/>
+      <path d="M470 206V272"/>
+      <path d="M470 378V406H154V426"/>
+      <path d="M276 480H342"/>
+      <path d="M592 480H658"/>
+    </g>
+    <g font-size="20" font-weight="650" fill="#c7d2fe">
+      <text x="54" y="145">Content library</text>
+      <text x="370" y="145">Local catalog</text>
+      <text x="686" y="145">Dashboard</text>
+      <text x="370" y="317">Task routing</text>
+      <text x="54" y="469">Resource menu</text>
+      <text x="370" y="469">Verified load</text>
+      <text x="686" y="469">Resource contents</text>
+    </g>
+    <g font-size="15.5" fill="#e2e8f0">
+      <text x="54" y="176">Skills and prompts</text>
+      <text x="370" y="176">SQLite index</text>
+      <text x="686" y="176">Browse and explore links</text>
+      <text x="370" y="348">Rank for the task</text>
+      <text x="54" y="500">Client chooses zero or more</text>
+      <text x="370" y="496">Check access, dependencies</text>
+      <text x="370" y="515">and hashes</text>
+      <text x="686" y="500">Deliver original text</text>
+    </g>
+    <g font-size="15" fill="#bac7df">
+      <text x="620" y="128" text-anchor="middle">Local API</text>
+      <text x="485" y="247">Optional model provider</text>
+    </g>
+  </g>
 </svg>

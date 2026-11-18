@@ -79,6 +79,26 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(self.app.get('overview',{})['data']['counts']['plugins'],1)
         with self.assertRaises(ValueError): self.app.sources.integrations('http://evil.test')
 
+    def test_graph_catalog_search_and_focus_keep_full_coverage(self):
+        rows=[(f'extra-{i:03d}', '', '', 'code', 1, 'abc', f'extra-{i:03d}', '') for i in range(110)]
+        rows.append(('zz-alias', '', '', 'code', 1, 'abc', 'alpha', ''))
+        with closing(sqlite3.connect(self.app.catalog)) as con:
+            con.executemany('INSERT INTO skills VALUES(?,?,?,?,?,?,?,?)',rows)
+            con.commit()
+
+        results=self.app.get('graph',{'type':'skill','q':'zz-alias'})['data']
+        self.assertEqual([node['id'] for node in results['nodes']],['skill:zz-alias'])
+        self.assertEqual(results['edges'],[])
+        focus={'node_id':'skill:zz-alias','depth':'1'}
+        limited=self.app.get('graph',dict(focus,limit='1'))['data']
+        self.assertTrue(limited['truncated'])
+        self.assertEqual([node['id'] for node in limited['nodes']],['skill:zz-alias'])
+        expanded=self.app.get('graph',focus)['data']
+        self.assertEqual([node['id'] for node in expanded['nodes']],['skill:zz-alias','skill:alpha'])
+        edge,=expanded['edges']
+        self.assertEqual((edge['source'],edge['target'],edge['type']),('skill:zz-alias','skill:alpha','alias_of'))
+        self.assertEqual(edge['evidence']['source'],'catalog canonical_name')
+
     def test_graph_projection_expansion_and_library(self):
         path=self.root/GRAPH; path.parent.mkdir(parents=True,exist_ok=True)
         path.write_text(json.dumps({'nodes':{'skill:a':{'t':'skill','n':'a'},'skill:b':{'t':'skill','n':'b'},'ext:bad':{'t':'ext','n':'bad'}},'edges':[{'s':'skill:a','d':'skill:b','r':'depends_on','src':'authored'},{'s':'skill:a','d':'ext:bad','r':'provides'}]}))

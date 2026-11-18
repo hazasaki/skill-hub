@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- The sidebar collapses on desktop and opens as a drawer on narrow screens.
+- The Dashboard opens in English and supports Vietnamese. Light, Dark and System
+  themes and language are saved in the browser.
+- The capabilities view adds name search, type filters, neighborhood focus,
+  relationship evidence, zoom and fit, and a keyboard-accessible list.
+
 - Adaptive routing scores candidates in stages of 24, 48 and 96. Agents can choose from a menu of up to 12 skills and 8 prompts. Loading an entry checks its permissions, dependencies and content hash.
 - The dashboard supports explicit resource selection and verified loading. The README illustrates the flow from catalog lookup to delivery.
 

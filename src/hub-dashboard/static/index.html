@@ -1,43 +1,47 @@
 <!doctype html>
-<html lang="vi">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0b1018">
-  <title>Skill Hub · Bảng Điều Khiển Quản Trị Hệ Thống</title>
+  <title>Skill Hub · Dashboard</title>
   <link rel="icon" href="skill-hub.png" type="image/png">
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="shell.css">
+  <link rel="stylesheet" href="graph.css">
+  <script src="shell-labels.js"></script>
+  <script src="shell.js"></script>
+  <script src="graph.js" defer></script>
   <script src="intake.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
   <div class="app-layout" id="app-main">
     <!-- Sidebar Navigation Rail -->
-    <aside class="sidebar" aria-label="Điều hướng chính">
+    <aside id="dashboard-sidebar" class="sidebar" aria-label="Main navigation">
       <div class="brand">
         <img src="skill-hub.png" width="42" height="42" alt="">
         <div class="brand-text">
           <h1 class="brand-title">Skill Hub</h1>
-          <span class="brand-subtitle">Bảng điều khiển</span>
+          <span class="brand-subtitle">Dashboard</span>
         </div>
+        <button id="navigation-close" type="button" class="navigation-close btn btn-icon btn-subtle" aria-label="Close navigation">×</button>
       </div>
 
-      <nav id="primary-navigation" class="nav-menu" role="tablist" aria-label="10 Phân hệ quản trị">
+      <nav id="primary-navigation" class="nav-menu" role="tablist" aria-orientation="vertical" aria-label="Dashboard views">
         <!-- Nhóm 1: Trung tâm & Kiểm thử -->
         <div class="nav-group">
-          <div class="nav-group-label">Trung tâm &amp; Kiểm thử</div>
+          <div class="nav-group-label">Workspace</div>
           <div class="nav-group-items">
             <button class="nav-item active" role="tab" id="tab-overview" aria-selected="true" aria-controls="view-overview" data-view="overview">
-              <span class="nav-num">01</span>
               <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
-              <span class="nav-label">Tổng quan &amp; Bàn phóng</span>
+              <span class="nav-label">Overview</span>
               <span class="nav-pill" id="pill-overview-status">Live</span>
             </button>
 
             <button class="nav-item" role="tab" id="tab-routing" aria-selected="false" aria-controls="view-routing" data-view="routing">
-              <span class="nav-num">02</span>
               <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
-              <span class="nav-label">Router Studio &amp; Điều hướng</span>
+              <span class="nav-label">Router Studio</span>
               <span class="nav-pill nav-pill-highlight" id="pill-routing-badge">Studio</span>
             </button>
           </div>
@@ -45,46 +49,41 @@
 
         <!-- Nhóm 2: Kho Năng lực & Sơ đồ -->
         <div class="nav-group">
-          <div class="nav-group-label">Kho Năng lực &amp; Sơ đồ</div>
+          <div class="nav-group-label">Catalog</div>
           <div class="nav-group-items">
             <button class="nav-item" role="tab" id="tab-skills" aria-selected="false" aria-controls="view-skills" data-view="skills">
-              <span class="nav-num">03</span>
               <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
-              <span class="nav-label">Danh mục Kỹ năng</span>
+              <span class="nav-label">Skills</span>
               <span class="nav-pill" id="pill-count-skills">—</span>
             </button>
 
             <button class="nav-item" role="tab" id="tab-library" aria-selected="false" aria-controls="view-library" data-view="library">
-              <span class="nav-num">04</span>
               <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
-              <span class="nav-label">Prompt &amp; Tri thức</span>
+              <span class="nav-label">Prompt Library</span>
               <span class="nav-pill" id="pill-count-prompts">—</span>
             </button>
 
             <button class="nav-item" role="tab" id="tab-graph" aria-selected="false" aria-controls="view-graph" data-view="graph">
-              <span class="nav-num">05</span>
               <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
-              <span class="nav-label">Sơ đồ Năng lực</span>
-              <span class="nav-pill" id="pill-count-graph">5 loại</span>
+              <span class="nav-label">Capability Graph</span>
+              <span class="nav-pill" id="pill-count-graph">5 types</span>
             </button>
           </div>
         </div>
 
         <!-- Nhóm 3: Hạ tầng & Thực thi -->
         <div class="nav-group">
-          <div class="nav-group-label">Hạ tầng &amp; Thực thi</div>
+          <div class="nav-group-label">Runtime</div>
           <div class="nav-group-items">
             <button class="nav-item" role="tab" id="tab-agents" aria-selected="false" aria-controls="view-agents" data-view="agents">
-              <span class="nav-num">06</span>
               <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
-              <span class="nav-label">Danh mục Agent</span>
+              <span class="nav-label">Agents</span>
               <span class="nav-pill" id="pill-count-agents">—</span>
             </button>
 
             <button class="nav-item" role="tab" id="tab-integrations" aria-selected="false" aria-controls="view-integrations" data-view="integrations">
-              <span class="nav-num">07</span>
               <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
-              <span class="nav-label">MCP &amp; Tích hợp</span>
+              <span class="nav-label">Integrations</span>
               <span class="nav-pill" id="pill-count-mcp">—</span>
             </button>
           </div>
@@ -92,26 +91,23 @@
 
         <!-- Nhóm 4: Đo lường & Quản trị -->
         <div class="nav-group">
-          <div class="nav-group-label">Đo lường &amp; Quản trị</div>
+          <div class="nav-group-label">Operations</div>
           <div class="nav-group-items">
             <button class="nav-item" role="tab" id="tab-telemetry" aria-selected="false" aria-controls="view-telemetry" data-view="telemetry">
-              <span class="nav-num">08</span>
               <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
-              <span class="nav-label">Nhật ký Telemetry</span>
+              <span class="nav-label">Telemetry</span>
               <span class="nav-pill" id="pill-count-telemetry">Log</span>
             </button>
 
             <button class="nav-item" role="tab" id="tab-quality" aria-selected="false" aria-controls="view-quality" data-view="quality">
-              <span class="nav-num">09</span>
               <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-              <span class="nav-label">Chất lượng &amp; Bảo mật</span>
+              <span class="nav-label">Catalog Quality</span>
               <span class="nav-pill" id="pill-quality-badge">Audit</span>
             </button>
 
             <button class="nav-item" role="tab" id="tab-config" aria-selected="false" aria-controls="view-config" data-view="config">
-              <span class="nav-num">10</span>
               <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-              <span class="nav-label">Cấu hình &amp; Cách ly</span>
+              <span class="nav-label">Settings &amp; Quarantine</span>
               <span class="nav-pill" id="pill-count-quarantine">0</span>
             </button>
           </div>
@@ -122,51 +118,66 @@
         <div class="safety-mode">
           <span class="safety-dot" aria-hidden="true"></span>
           <div>
-            <strong>Khu vực An toàn</strong>
-            <small>Chỉ đọc &amp; Cách ly (Quarantine)</small>
+            <strong>Protected workspace</strong>
+            <small>Read access and quarantine</small>
           </div>
         </div>
         <div class="csrf-indicator">
-          <span id="csrf-badge" class="badge badge-muted">CSRF: Đang tải...</span>
+          <span id="csrf-badge" class="badge badge-muted">CSRF: Loading…</span>
         </div>
       </div>
     </aside>
+
+    <div id="navigation-scrim" class="navigation-scrim" aria-hidden="true"></div>
 
     <!-- Main Content Area -->
     <div class="main-wrapper">
       <!-- Topbar Header -->
       <header class="topbar">
         <div class="topbar-left">
-          <button id="mobile-menu-toggle" class="btn btn-icon btn-subtle mobile-only" aria-label="Mở menu điều hướng" aria-controls="primary-navigation" aria-expanded="false">☰</button>
+          <button id="mobile-menu-toggle" type="button" class="btn btn-icon btn-subtle" aria-label="Toggle navigation" aria-controls="dashboard-sidebar" aria-expanded="false"><svg class="navigation-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M9 4v16"></path></svg></button>
           <div class="view-header">
-            <span class="view-eyebrow" id="view-eyebrow">PHÂN HỆ 01</span>
-            <h2 class="view-title" id="view-title">Tổng quan Hệ thống</h2>
+            <span class="view-eyebrow" id="view-eyebrow">Dashboard</span>
+            <h2 class="view-title" id="view-title">Overview</h2>
           </div>
         </div>
 
         <div class="topbar-actions">
+          <div class="dashboard-preferences">
+            <label class="sr-only" for="dashboard-language">Language</label>
+            <select id="dashboard-language">
+              <option value="en" lang="en">English</option>
+              <option value="vi" lang="vi">Tiếng Việt</option>
+            </select>
+            <label class="sr-only" for="dashboard-theme">Theme</label>
+            <select id="dashboard-theme">
+              <option value="system">System</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </div>
           <div class="connection-status" id="connection-status" role="status">
             <span class="status-indicator status-unknown" id="connection-dot"></span>
-            <span id="connection-text">Đang kết nối backend...</span>
+            <span id="connection-text">Connecting to the backend…</span>
           </div>
 
           <label class="auto-refresh-label">
             <input type="checkbox" id="auto-refresh-check" checked>
-            <span>Tự cập nhật 15s</span>
+            <span>Refresh every 15s</span>
           </label>
 
           <button id="btn-open-router-studio" class="btn btn-primary btn-highlight" title="Mở trực tiếp Router Studio để kiểm thử lệnh route_task">
             <span>Kiểm thử router · có thể tính phí</span>
           </button>
 
-          <button id="refresh-btn" class="btn btn-subtle" title="Làm mới dữ liệu phân hệ hiện tại">
+          <button id="refresh-btn" class="btn btn-subtle" title="Refresh the current view">
             <span class="spin-icon" aria-hidden="true">↻</span>
-            <span>Làm mới</span>
+            <span>Refresh</span>
           </button>
 
-          <button id="open-batch-intake" class="btn btn-secondary" type="button">+ Nhập skill / prompt</button>
-          <button id="open-quarantine-btn" class="btn btn-secondary" title="Mở trung tâm quản lý nhập/cập nhật tài nguyên cách ly">
-            <span>+ Quản lý Cách ly</span>
+          <button id="open-batch-intake" class="btn btn-secondary" type="button">+ Import skill or prompt</button>
+          <button id="open-quarantine-btn" class="btn btn-secondary" title="Open the quarantine manager">
+            <span>Manage Quarantine</span>
           </button>
         </div>
       </header>
@@ -175,7 +186,7 @@
       <div id="global-alert" class="global-alert" role="alert" hidden>
         <span class="alert-icon">⚠</span>
         <div class="alert-content" id="global-alert-text"></div>
-        <button class="alert-close" id="global-alert-close" aria-label="Đóng thông báo">✕</button>
+        <button class="alert-close" id="global-alert-close" aria-label="Dismiss alert">✕</button>
       </div>
 
       <!-- Main Workspaces Container -->
@@ -184,14 +195,14 @@
         <!-- 01: VIEW OVERVIEW -->
         <section id="view-overview" class="view-panel active" role="tabpanel" aria-labelledby="tab-overview">
           <div class="section-lead">
-            <p>Tổng quan số lượng tài nguyên, trạng thái kết nối nguồn dữ liệu, biểu đồ sự kiện và hoạt động điều hướng gần nhất.</p>
+            <p>Monitor the catalog, source health and recent routing activity.</p>
           </div>
 
           <details class="hub-architecture card mb-md">
-            <summary>Sơ đồ kiến trúc Skill Hub</summary>
-            <p>Hub đề xuất tài nguyên từ kho. Agent chọn mục cần dùng. Hub kiểm tra quyền, phụ thuộc và mã băm trước khi trả nội dung.</p>
-            <a href="architecture.svg" target="_blank" rel="noopener" aria-label="Mở sơ đồ kiến trúc ở kích thước đầy đủ (tab mới)">
-              <img src="architecture.svg" width="940" height="560" alt="Luồng từ kho skill và prompt đến nội dung đã xác minh">
+            <summary>Skill Hub architecture</summary>
+            <p>The Hub proposes resources from the catalog. Agents choose what to use. The Hub checks permissions, dependencies and hashes before returning content.</p>
+            <a href="architecture.svg" target="_blank" rel="noopener" aria-label="Open the full-size architecture diagram in a new tab">
+              <img src="architecture.svg" width="940" height="560" alt="Flow from the skill and prompt catalog to verified content">
             </a>
           </details>
 
@@ -229,41 +240,41 @@
           <!-- Metrics summary cards -->
           <div class="metrics-grid">
             <article class="metric-card">
-              <span class="metric-label">KỸ NĂNG (SKILLS)</span>
+              <span class="metric-label">Skills</span>
               <strong class="metric-val" id="metric-skills">—</strong>
-              <small class="metric-sub" id="metric-skills-sub">Đang đọc catalog...</small>
+              <small class="metric-sub" id="metric-skills-sub">Reading catalog…</small>
             </article>
 
             <article class="metric-card">
-              <span class="metric-label">PROMPTS &amp; MẪU</span>
+              <span class="metric-label">Prompts</span>
               <strong class="metric-val" id="metric-prompts">—</strong>
-              <small class="metric-sub" id="metric-prompts-sub">Đang đọc catalog...</small>
+              <small class="metric-sub" id="metric-prompts-sub">Reading catalog…</small>
             </article>
 
             <article class="metric-card">
-              <span class="metric-label">AGENTS QUẢN TRỊ</span>
+              <span class="metric-label">Agents</span>
               <strong class="metric-val" id="metric-agents">—</strong>
-              <small class="metric-sub" id="metric-agents-sub">Chưa có native adapter</small>
+              <small class="metric-sub" id="metric-agents-sub">Native adapter unavailable</small>
             </article>
 
             <article class="metric-card">
-              <span class="metric-label">MCP SERVERS</span>
+              <span class="metric-label">MCP servers</span>
               <strong class="metric-val" id="metric-mcp">—</strong>
-              <small class="metric-sub" id="metric-mcp-sub">Snapshot catalog</small>
+              <small class="metric-sub" id="metric-mcp-sub">Catalog snapshot</small>
             </article>
 
             <article class="metric-card">
-              <span class="metric-label">PLUGINS &amp; MỞ RỘNG</span>
+              <span class="metric-label">Plugins</span>
               <strong class="metric-val" id="metric-plugins">—</strong>
-              <small class="metric-sub" id="metric-plugins-sub">Chưa ghi nhận</small>
+              <small class="metric-sub" id="metric-plugins-sub">No records</small>
             </article>
           </div>
 
           <!-- Source provenance & health cards -->
           <div class="card">
             <div class="card-header">
-              <h3 class="card-title">Nguồn dữ liệu &amp; Trạng thái Xác minh</h3>
-              <span class="badge badge-subtle" id="overview-observed-at">Thời điểm: —</span>
+              <h3 class="card-title">Data source health</h3>
+              <span class="badge badge-subtle" id="overview-observed-at">Observed: —</span>
             </div>
             <div class="sources-list" id="overview-sources">
               <!-- Dynamically populated sources -->
@@ -274,32 +285,32 @@
           <div class="grid-two-col">
             <div class="card">
               <div class="card-header">
-                <h3 class="card-title">Biểu đồ Lượt gọi theo Ngày &amp; Nguồn</h3>
+                <h3 class="card-title">Daily events by source</h3>
                 <span class="badge badge-subtle">Native vs Docker</span>
               </div>
               <div class="chart-container" id="overview-chart-wrap">
-                <svg id="overview-chart" class="usage-chart" viewBox="0 0 600 240" aria-label="Biểu đồ số sự kiện theo ngày"></svg>
+                <svg id="overview-chart" class="usage-chart" viewBox="0 0 600 240" aria-label="Daily event count chart"></svg>
               </div>
               <div class="chart-legend" id="chart-legend"></div>
             </div>
 
             <div class="card">
               <div class="card-header">
-                <h3 class="card-title">Hoạt động Điều hướng Gần đây</h3>
-                <span class="badge badge-subtle">20 sự kiện mới nhất</span>
+                <h3 class="card-title">Recent routing activity</h3>
+                <span class="badge badge-subtle">Latest 20 events</span>
               </div>
               <div class="table-container small-table">
                 <table class="data-table">
                   <thead>
                     <tr>
-                      <th>Thời gian</th>
-                      <th>Nguồn</th>
-                      <th>Giai đoạn</th>
-                      <th>Kết quả</th>
+                      <th>Time</th>
+                      <th>Source</th>
+                      <th>Stage</th>
+                      <th>Result</th>
                     </tr>
                   </thead>
                   <tbody id="overview-activity-rows">
-                    <tr><td colspan="4" class="text-muted text-center">Đang tải dữ liệu...</td></tr>
+                    <tr><td colspan="4" class="text-muted text-center">Loading data…</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -310,35 +321,35 @@
         <!-- 02: VIEW SKILLS -->
         <section id="view-skills" class="view-panel" role="tabpanel" aria-labelledby="tab-skills" hidden>
           <div class="section-lead">
-            <p>Tra cứu danh mục kỹ năng, tìm kiếm full-text cụm từ, phân loại domain, xem tài liệu SKILL.md an toàn và quản lý cập nhật.</p>
+            <p>Search and filter skills, inspect SKILL.md and manage revisions.</p>
           </div>
 
           <div class="toolbar-card">
             <div class="filter-bar">
               <div class="search-input-wrap">
-                <input type="search" id="skills-search-input" class="form-control" placeholder="Tìm kiếm cụm từ hoặc ngữ nghĩa (ví dụ: python, testing, docker)..." aria-label="Tìm kiếm kỹ năng">
-                <select id="skill-search-mode" class="form-control skill-mode-select" title="Chế độ tìm kiếm kỹ năng">
-                  <option value="fts" selected>Tìm từ khóa (SQLite FTS)</option>
-                  <option value="semantic">Tìm ngữ nghĩa (dGPU BGE-M3)</option>
+                <input type="search" id="skills-search-input" class="form-control" placeholder="Search by keyword or meaning (e.g. Python, testing, Docker)…" aria-label="Search skills">
+                <select id="skill-search-mode" class="form-control skill-mode-select" title="Skill search mode">
+                  <option value="fts" selected>Keyword search (SQLite FTS)</option>
+                  <option value="semantic">Semantic search (BGE-M3 on dGPU)</option>
                 </select>
-                <button id="skills-search-btn" class="btn btn-secondary">Tìm kiếm</button>
+                <button id="skills-search-btn" class="btn btn-secondary">Search</button>
               </div>
 
               <div class="select-wrap">
-                <label for="skills-domain-select" class="sr-only">Lọc theo domain</label>
+                <label for="skills-domain-select" class="sr-only">Filter by domain</label>
                 <select id="skills-domain-select" class="form-control">
-                  <option value="">Tất cả chuyên mục (Domains)</option>
+                  <option value="">All domains</option>
                 </select>
               </div>
 
               <div class="toolbar-actions">
-                <button id="skills-import-btn" class="btn btn-primary">+ Nhập Skill vào Quarantine</button>
+                <button id="skills-import-btn" class="btn btn-primary">+ Import skill into quarantine</button>
               </div>
             </div>
 
             <div class="search-status-bar">
-              <span id="skills-search-status-text" class="text-muted">Chế độ: Đọc catalog</span>
-              <span id="skills-total-count" class="badge badge-subtle">Tổng: 0 kỹ năng</span>
+              <span id="skills-search-status-text" class="text-muted">Mode: Catalog read</span>
+              <span id="skills-total-count" class="badge badge-subtle">Total: 0 skills</span>
             </div>
           </div>
 
@@ -347,25 +358,25 @@
               <table class="data-table" id="skills-table">
                 <thead>
                   <tr>
-                    <th>Tên Kỹ năng</th>
-                    <th>Chuyên mục</th>
-                    <th>Phiên bản (Hash)</th>
-                    <th>Trạng thái</th>
-                    <th>Hành động</th>
+                    <th>Skill name</th>
+                    <th>Domain</th>
+                    <th>Version hash</th>
+                    <th>Status</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody id="skills-table-body">
-                  <tr><td colspan="5" class="text-center text-muted">Đang tải danh mục kỹ năng...</td></tr>
+                  <tr><td colspan="5" class="text-center text-muted">Loading skills…</td></tr>
                 </tbody>
               </table>
             </div>
 
             <div class="pagination-bar">
-              <div class="pagination-info" id="skills-pagination-info">Hiển thị 0 - 0 của 0</div>
+              <div class="pagination-info" id="skills-pagination-info">Showing 0–0 of 0</div>
               <div class="pagination-controls">
-                <button id="skills-prev-page" class="btn btn-subtle" disabled>Trang trước</button>
-                <span id="skills-page-indicator" class="page-num">Trang 1</span>
-                <button id="skills-next-page" class="btn btn-subtle" disabled>Trang sau</button>
+                <button id="skills-prev-page" class="btn btn-subtle" disabled>Previous page</button>
+                <span id="skills-page-indicator" class="page-num">Page 1</span>
+                <button id="skills-next-page" class="btn btn-subtle" disabled>Next page</button>
               </div>
             </div>
           </div>
@@ -373,79 +384,82 @@
 
         <!-- 03: VIEW GRAPH -->
         <section id="view-graph" class="view-panel" role="tabpanel" aria-labelledby="tab-graph" hidden>
-          <div class="section-lead">
-            <p>Sơ đồ tương tác biểu diễn các quan hệ năng lực giữa Skills và Prompts có bằng chứng xác minh (alias_of) trong catalog.</p>
-          </div>
-
+          <div class="section-lead"><p data-graph-copy="lead">Explore the relationships recorded for catalog resources and integrations.</p></div>
           <div class="toolbar-card">
-            <div class="filter-bar">
-              <div class="select-wrap">
-                <label for="graph-type-filter" class="form-label-inline">Loại node:</label>
+            <div class="graph-toolbar">
+              <label class="graph-field graph-field-search">
+                <span data-graph-copy="search">Search by name</span>
+                <input type="search" id="graph-filter-input" class="form-control" maxlength="200" placeholder="Find a skill or other resource">
+              </label>
+              <label class="graph-field">
+                <span data-graph-copy="type">Resource type</span>
                 <select id="graph-type-filter" class="form-control">
-                  <option value="all">Tất cả loại (5 loại node)</option>
-                  <option value="skill">Kỹ năng (Skill)</option>
-                  <option value="prompt">Lời nhắc (Prompt)</option>
-                  <option value="agent">Agent</option>
-                  <option value="mcp">MCP Server</option>
-                  <option value="project">Dự án (Project)</option>
+                  <option value="all" data-graph-copy="all">All types</option>
+                  <option value="skill" data-graph-copy="skill">Skill</option>
+                  <option value="prompt" data-graph-copy="prompt">Prompt</option>
+                  <option value="agent" data-graph-copy="agent">Agent</option>
+                  <option value="mcp" data-graph-copy="mcp">MCP server</option>
+                  <option value="project" data-graph-copy="project">Project</option>
                 </select>
-              </div>
-
-              <div class="search-input-wrap">
-                <input type="text" id="graph-filter-input" class="form-control" placeholder="Lọc nhãn node trên sơ đồ..." aria-label="Lọc nhãn node">
-              </div>
-
-              <div class="select-wrap">
-                <label for="graph-depth-filter" class="form-label-inline">Độ sâu:</label>
-                <select id="graph-depth-filter" class="form-control">
-                  <option value="1">Độ sâu 1 (depth=1)</option>
-                  <option value="2">Độ sâu 2 (depth=2)</option>
-                  <option value="3">Độ sâu 3 (depth=3)</option>
-                  <option value="0">Độc lập (depth=0)</option>
+              </label>
+              <label class="graph-field">
+                <span data-graph-copy="depth">Depth</span>
+                <select id="graph-depth-filter" class="form-control" disabled>
+                  <option value="1" data-graph-copy="one">1 link away</option>
+                  <option value="2" data-graph-copy="two">2 links away</option>
+                  <option value="3" data-graph-copy="three">3 links away</option>
+                  <option value="0" data-graph-copy="zero">Selected node only</option>
                 </select>
+              </label>
+              <div class="graph-control-group">
+                <button type="button" id="graph-focus-btn" class="btn btn-secondary" data-graph-copy="focus" disabled>Focus on node</button>
+                <button type="button" id="graph-reset-focus-btn" class="btn btn-subtle" data-graph-copy="clear" hidden>Exit focus</button>
               </div>
-
-              <div class="toolbar-group">
-                <button id="graph-focus-btn" class="btn btn-subtle" disabled title="Tập trung và mở rộng chuỗi liên kết phụ thuộc của nút đang chọn">Mở rộng liên kết</button>
-                <button id="graph-reset-focus-btn" class="btn btn-subtle" hidden title="Trở lại toàn bộ sơ đồ">Bỏ tập trung</button>
+              <div class="graph-mode-switch" role="group" aria-label="Graph display" data-graph-label="modes">
+                <button type="button" id="graph-map-mode" class="btn btn-subtle" aria-pressed="true" data-graph-copy="map">Map</button>
+                <button type="button" id="graph-list-mode" class="btn btn-subtle" aria-pressed="false" data-graph-copy="list">List</button>
               </div>
-
-              <div class="graph-zoom-controls">
-                <button id="graph-zoom-out" class="btn btn-icon btn-subtle" title="Thu nhỏ">−</button>
-                <span id="graph-zoom-level" class="badge badge-subtle">100%</span>
-                <button id="graph-zoom-in" class="btn btn-icon btn-subtle" title="Phóng to">+</button>
-                <button id="graph-zoom-reset" class="btn btn-subtle">100%</button>
-                <button id="graph-zoom-fit" class="btn btn-secondary">Vừa khung</button>
-              </div>
-            </div>
-
-            <div class="search-status-bar">
-              <span id="graph-stats" class="text-muted">Đang tải sơ đồ...</span>
-              <span class="badge badge-warning">Chỉ liên kết alias_of có bằng chứng</span>
             </div>
           </div>
-
-          <div class="graph-viewport-wrap">
-            <div id="graph-viewport" class="graph-viewport" tabindex="0" role="region" aria-label="Sơ đồ quan hệ năng lực. Kéo để di chuyển, click node để kiểm tra">
-              <svg id="graph-svg" class="graph-svg" width="1600" height="1000">
-                <defs>
-                  <marker id="arrow" viewBox="0 0 10 10" refX="22" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#577497" />
-                  </marker>
-                  <marker id="arrow-selected" viewBox="0 0 10 10" refX="22" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#bdd6ff" />
-                  </marker>
-                </defs>
-                <g id="graph-edges-group"></g>
-                <g id="graph-nodes-group"></g>
-              </svg>
+          <p id="graph-stats" class="graph-status" role="status">Loading capability graph…</p>
+          <button type="button" id="graph-retry" class="btn btn-secondary" data-graph-copy="retry" hidden>Retry</button>
+          <div id="graph-results" hidden>
+            <div class="graph-visual">
+              <div id="graph-map-panel">
+                <div class="graph-map-toolbar">
+                  <div class="graph-control-group">
+                    <button type="button" id="graph-zoom-out" class="btn btn-icon btn-subtle" aria-label="Zoom out" data-graph-label="zoomOut">−</button>
+                    <output id="graph-zoom-level" class="graph-muted" aria-live="off">100%</output>
+                    <button type="button" id="graph-zoom-in" class="btn btn-icon btn-subtle" aria-label="Zoom in" data-graph-label="zoomIn">+</button>
+                    <button type="button" id="graph-zoom-fit" class="btn btn-subtle" data-graph-copy="fit">Fit</button>
+                  </div>
+                  <span class="graph-muted" data-graph-copy="fitHint">Use List to read full labels and browse with the keyboard.</span>
+                </div>
+                <div id="graph-viewport" class="graph-map-region" tabindex="0" role="region" aria-label="Relationship map. Scroll to explore and select a node for details." data-graph-label="mapRegion">
+                  <svg id="graph-svg" width="1" height="1">
+                    <defs>
+                      <marker id="graph-arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+                        <path d="M0 0 L10 5 L0 10 Z" fill="context-stroke"/>
+                      </marker>
+                    </defs>
+                    <g id="graph-edges-group" aria-hidden="true"></g>
+                    <g id="graph-nodes-group"></g>
+                  </svg>
+                </div>
+              </div>
+              <div id="graph-list-panel" hidden>
+                <ul id="graph-node-list" class="graph-node-list" aria-label="Graph results" data-graph-label="resultList"></ul>
+              </div>
+              <div class="graph-key" role="group" aria-label="Relationship legend" data-graph-label="legend">
+                <span><i class="graph-key-swatch alias" aria-hidden="true"></i><span data-graph-copy="alias_of">Alias → canonical resource</span></span>
+                <span><i class="graph-key-swatch install" aria-hidden="true"></i><span data-graph-copy="installed_skill">Agent → installed skill</span></span>
+                <span><i class="graph-key-swatch" aria-hidden="true"></i><span data-graph-copy="other">Other recorded relationship</span></span>
+              </div>
             </div>
-            <div class="graph-legend-bar">
-              <span><i class="legend-dot dot-skill"></i> Skill</span>
-              <span><i class="legend-dot dot-prompt"></i> Prompt</span>
-              <span><i class="legend-line line-alias"></i> Quan hệ Alias (alias_of)</span>
-              <span class="text-muted">Kéo chuột để di chuyển canvas · Bấm node để xem chi tiết</span>
-            </div>
+            <aside class="graph-visual graph-details" aria-labelledby="graph-details-heading">
+              <h2 id="graph-details-heading" tabindex="-1" data-graph-copy="details">Node details</h2>
+              <div id="graph-details-content"></div>
+            </aside>
           </div>
         </section>
 
@@ -770,18 +784,18 @@
         <!-- 05: VIEW AGENTS -->
         <section id="view-agents" class="view-panel" role="tabpanel" aria-labelledby="tab-agents" hidden>
           <div class="section-lead">
-            <p>Quản lý danh mục agent, cấu hình vai trò, mô hình LLM, quyền kỹ năng, công cụ MCP khả dụng và phân quyền runtime.</p>
+            <p>View registered agents, their roles, models, skill permissions and available MCP tools.</p>
           </div>
 
           <!-- Dynamic Agent List Card -->
           <div class="card mb-md" id="agents-list-card">
             <div class="card-header">
               <div class="header-with-badge">
-                <h3 class="card-title">Danh bạ Agent Hệ thống (Agent Registry)</h3>
-                <span class="badge badge-subtle" id="agents-stats">Đang tải...</span>
+                <h3 class="card-title">Agent registry</h3>
+                <span class="badge badge-subtle" id="agents-stats">Loading…</span>
               </div>
               <div class="toolbar-actions">
-                <input type="search" id="agents-search-input" class="form-control" placeholder="Tìm kiếm agent theo tên, vai trò..." aria-label="Tìm kiếm agent">
+                <input type="search" id="agents-search-input" class="form-control" placeholder="Search by name or role…" aria-label="Search agents">
               </div>
             </div>
             <div class="card-body">
@@ -789,17 +803,17 @@
                 <table class="data-table" id="agents-table">
                   <thead>
                     <tr>
-                      <th>Agent ID / Tên</th>
-                      <th>Vai trò &amp; Nhiệm vụ</th>
-                      <th>Mô hình LLM</th>
+                      <th>Agent ID / name</th>
+                      <th>Role and assignment</th>
+                      <th>Model</th>
                       <th>Runtime</th>
-                      <th>Kỹ năng được gán</th>
-                      <th>MCP Tools khả dụng</th>
-                      <th>Nguồn / Quyền</th>
+                      <th>Assigned skills</th>
+                      <th>Available MCP tools</th>
+                      <th>Source / permission</th>
                     </tr>
                   </thead>
                   <tbody id="agents-table-body">
-                    <tr><td colspan="7" class="text-center text-muted">Đang tải danh bạ agent...</td></tr>
+                    <tr><td colspan="7" class="text-center text-muted">Loading agents…</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -811,69 +825,69 @@
             <summary>
               <div class="flex-align-center gap-xs">
                 <span class="status-indicator status-blocked"></span>
-                <strong>Native Registry Adapter Chưa Kết Nối (Adapter Pending / Unavailable)</strong>
+                <strong>Native registry adapter unavailable</strong>
               </div>
-              <span class="strip-toggle">Chi tiết ▾</span>
+              <span class="strip-toggle">Details ▾</span>
             </summary>
             <div class="context-strip-body">
-              <p id="agents-notice-desc">Backend chưa kết nối được adapter đọc danh bạ Agent gốc. Đây là trạng thái thiếu adapter của backend, không phải hệ thống có 0 agent.</p>
-              <p class="text-muted text-xs mt-xs">Thao tác sửa đổi agent (<code>agent.edit</code>) đang ở trạng thái <strong>Không hỗ trợ</strong> theo chính sách bảo vệ host.</p>
+              <p id="agents-notice-desc">The backend needs a native registry adapter to report agent data. The agent count is currently unknown.</p>
+              <p class="text-muted text-xs mt-xs">Agent changes (<code>agent.edit</code>) are currently <strong>unsupported</strong> under the host policy.</p>
             </div>
           </details>
 
           <div class="card">
             <div class="card-header">
-              <h3 class="card-title">Đặc tả Cấu trúc Dữ liệu Agent &amp; Chính sách Bảo vệ (Schema &amp; Policy)</h3>
-              <span class="badge badge-subtle">Quy định máy chủ</span>
+              <h3 class="card-title">Agent data and host policy</h3>
+              <span class="badge badge-subtle">Host policy</span>
             </div>
             <div class="card-body">
-              <p>Khi adapter gốc được tích hợp, phân hệ sẽ đọc và hiển thị các trường sau từ registry runtime:</p>
+              <p>The native adapter can report these fields from the runtime registry:</p>
               <div class="table-container">
                 <table class="data-table">
                   <thead>
                     <tr>
-                      <th>Trường dữ liệu</th>
-                      <th>Mô tả kỹ thuật</th>
-                      <th>Nguồn dự kiến</th>
-                      <th>Quyền hạn &amp; Ranh giới</th>
+                      <th>Field</th>
+                      <th>Description</th>
+                      <th>Expected source</th>
+                      <th>Permissions and boundaries</th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr>
                       <td><code>agent_id / name</code></td>
-                      <td>Định danh duy nhất và tên đại diện agent</td>
+                      <td>Unique agent identifier and display name</td>
                       <td>OpenBot Agent Profile</td>
-                      <td>Chỉ đọc từ profile gốc</td>
+                      <td>Read from the native profile</td>
                     </tr>
                     <tr>
                       <td><code>role / description</code></td>
-                      <td>Chuyên môn, vai trò và phạm vi nhiệm vụ đứng độc lập</td>
+                      <td>Specialization, role and assignment scope</td>
                       <td>AGENTS.md / Profile JSON</td>
-                      <td>Tuân thủ ranh giới trách nhiệm</td>
+                      <td>Follow assignment boundaries</td>
                     </tr>
                     <tr>
                       <td><code>model_selection</code></td>
-                      <td>Mô hình LLM được gán và tham số suy luận</td>
+                      <td>Assigned model and inference settings</td>
                       <td>Host configuration</td>
-                      <td>Không đổi model ngoài quyền hạn</td>
+                      <td>Model changes require authorization</td>
                     </tr>
                     <tr>
                       <td><code>skills_granted</code></td>
-                      <td>Danh sách kỹ năng trong Hub được cấp phép nạp</td>
+                      <td>Hub skills available to load</td>
                       <td>Skill Index Bindings</td>
-                      <td>Đối soát với chính sách bảo mật</td>
+                      <td>Checked against security policy</td>
                     </tr>
                     <tr>
                       <td><code>mcp_access</code></td>
-                      <td>Các công cụ MCP server mà agent được quyền gọi</td>
+                      <td>MCP tools the agent may call</td>
                       <td>Runtime Tool Policy</td>
-                      <td>Chặn can thiệp trái phép</td>
+                      <td>Enforce runtime tool permissions</td>
                     </tr>
                     <tr>
                       <td><code>runtime_status</code></td>
-                      <td>Trạng thái hoạt động thực tế (working/waiting/stopped)</td>
+                      <td>Observed runtime status (working, waiting or stopped)</td>
                       <td>Host Process Projections</td>
-                      <td>Cấm ghi đè trực tiếp projection DB</td>
+                      <td>Projection database writes are disabled</td>
                     </tr>
                   </tbody>
                 </table>
@@ -885,69 +899,69 @@
         <!-- 06: VIEW INTEGRATIONS (MCP) -->
         <section id="view-integrations" class="view-panel" role="tabpanel" aria-labelledby="tab-integrations" hidden>
           <div class="section-lead">
-            <p>Quản lý các máy chủ giao thức kết nối công cụ (MCP Server), danh mục công cụ được công bố và trạng thái kết nối.</p>
+            <p>View the MCP catalog, advertised tools and connection status.</p>
           </div>
 
           <div class="toolbar-card">
             <div class="filter-bar">
               <div class="search-status-bar">
-                <span id="mcp-stats" class="text-muted">Đang tải danh mục MCP...</span>
+                <span id="mcp-stats" class="text-muted">Loading MCP catalog…</span>
               </div>
               <div class="toolbar-actions">
-                <button id="mcp-probe-btn" class="btn btn-secondary">Kiểm tra Health (127.0.0.1:8765/health)</button>
+                <button id="mcp-probe-btn" class="btn btn-secondary">Check health (127.0.0.1:8765/health)</button>
                 <span class="badge badge-warning">Snapshot &amp; Loopback Probe</span>
               </div>
             </div>
             <details class="context-strip warning" id="mcp-health-notice">
               <summary>
-                <strong>Lưu ý về kiểm tra kết nối:</strong> Danh mục MCP hiển thị bản chụp catalog &amp; probe loopback 8765
-                <span class="strip-toggle">Chi tiết ▾</span>
+                <strong>Connection check</strong> MCP catalog snapshot and local probe
+                <span class="strip-toggle">Details ▾</span>
               </summary>
               <div class="context-strip-body">
-                Danh mục MCP hiển thị các máy chủ cấu hình và bản chụp catalog. Bấm nút <em>Kiểm tra Health</em> để kiểm tra trực tiếp qua loopback probe <code>127.0.0.1:8765/health</code>.
+                The MCP catalog lists configured servers and snapshot data. Select <em>Check health</em> to probe <code>127.0.0.1:8765/health</code>.
               </div>
             </details>
           </div>
 
           <div class="mcp-grid" id="mcp-servers-grid">
-            <div class="text-center text-muted">Đang tải danh sách MCP server...</div>
+            <div class="text-center text-muted">Loading MCP servers…</div>
           </div>
         </section>
 
         <!-- 07: VIEW LIBRARY -->
         <section id="view-library" class="view-panel" role="tabpanel" aria-labelledby="tab-library" hidden>
           <div class="section-lead">
-            <p>Thư viện quản lý System Prompts, mẫu câu lệnh, hướng dẫn vận hành và tri thức dùng chung với khả năng kiểm soát phiên bản.</p>
+            <p>Browse versioned prompts, templates, operating guides and shared documents.</p>
           </div>
 
           <div class="toolbar-card">
             <div class="filter-bar">
               <div class="search-input-wrap">
-                <input type="search" id="library-search-input" class="form-control" placeholder="Tìm kiếm mẫu prompt, hướng dẫn..." aria-label="Tìm kiếm prompt">
-                <button id="library-search-btn" class="btn btn-secondary">Tìm kiếm</button>
+                <input type="search" id="library-search-input" class="form-control" placeholder="Search prompts and guides…" aria-label="Search prompts">
+                <button id="library-search-btn" class="btn btn-secondary">Search</button>
               </div>
 
               <div class="select-wrap">
                 <select id="library-kind-select" class="form-control">
-                  <option value="prompt">Mẫu lời nhắc (Prompts)</option>
-                  <option value="document">Tài liệu chia sẻ (Documents)</option>
+                  <option value="prompt">Prompts</option>
+                  <option value="document">Shared documents</option>
                 </select>
               </div>
 
               <div class="select-wrap">
                 <select id="library-domain-select" class="form-control">
-                  <option value="">Tất cả chuyên mục (Domain)</option>
+                  <option value="">All domains</option>
                 </select>
               </div>
 
               <div class="toolbar-actions">
-                <button id="library-import-btn" class="btn btn-primary">+ Nhập Prompt vào Quarantine</button>
+                <button id="library-import-btn" class="btn btn-primary">+ Import prompt into quarantine</button>
               </div>
             </div>
 
             <div class="search-status-bar">
-              <span id="library-search-mode" class="text-muted">Chế độ: Đọc catalog</span>
-              <span id="library-total-count" class="badge badge-subtle">Tổng: 0 prompts</span>
+              <span id="library-search-mode" class="text-muted">Mode: Catalog read</span>
+              <span id="library-total-count" class="badge badge-subtle">Total: 0 prompts</span>
             </div>
           </div>
 
@@ -956,25 +970,25 @@
               <table class="data-table" id="library-table">
                 <thead>
                   <tr>
-                    <th>Tên Mẫu Prompt</th>
-                    <th>Chuyên mục</th>
-                    <th>Phiên bản (Hash)</th>
-                    <th>Trạng thái</th>
-                    <th>Hành động</th>
+                    <th>Prompt name</th>
+                    <th>Domain</th>
+                    <th>Version hash</th>
+                    <th>Status</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody id="library-table-body">
-                  <tr><td colspan="5" class="text-center text-muted">Đang tải thư viện prompt...</td></tr>
+                  <tr><td colspan="5" class="text-center text-muted">Loading prompts…</td></tr>
                 </tbody>
               </table>
             </div>
 
             <div class="pagination-bar">
-              <div class="pagination-info" id="library-pagination-info">Hiển thị 0 - 0 của 0</div>
+              <div class="pagination-info" id="library-pagination-info">Showing 0–0 of 0</div>
               <div class="pagination-controls">
-                <button id="library-prev-page" class="btn btn-subtle" disabled>Trang trước</button>
-                <span id="library-page-indicator" class="page-num">Trang 1</span>
-                <button id="library-next-page" class="btn btn-subtle" disabled>Trang sau</button>
+                <button id="library-prev-page" class="btn btn-subtle" disabled>Previous page</button>
+                <span id="library-page-indicator" class="page-num">Page 1</span>
+                <button id="library-next-page" class="btn btn-subtle" disabled>Next page</button>
               </div>
             </div>
           </div>
@@ -983,51 +997,51 @@
         <!-- 08: VIEW TELEMETRY -->
         <section id="view-telemetry" class="view-panel" role="tabpanel" aria-labelledby="tab-telemetry" hidden>
           <div class="section-lead">
-            <p>Nhật ký đo lường và quan sát thực thi chi tiết từ các nguồn telemetry được chuẩn hóa, phân vùng theo môi trường thực thi.</p>
+            <p>Inspect normalized execution events by runtime source.</p>
           </div>
 
           <div class="toolbar-card">
             <div class="filter-bar">
               <div class="select-wrap">
-                <label for="telemetry-source-filter" class="form-label-inline">Phân vùng Nguồn:</label>
+                <label for="telemetry-source-filter" class="form-label-inline">Source:</label>
                 <select id="telemetry-source-filter" class="form-control">
-                  <option value="all">Tất cả nguồn</option>
+                  <option value="all">All sources</option>
                   <option value="native">Native telemetry</option>
                   <option value="docker">Docker telemetry</option>
                 </select>
               </div>
 
               <div class="select-wrap">
-                <label for="telemetry-kind-filter" class="form-label-inline">Loại sự kiện:</label>
+                <label for="telemetry-kind-filter" class="form-label-inline">Event type:</label>
                 <select id="telemetry-kind-filter" class="form-control">
-                  <option value="all">Tất cả loại sự kiện</option>
-                  <option value="route">route (Điều hướng)</option>
-                  <option value="select">select (Chọn tài nguyên)</option>
-                  <option value="load">load (Nạp nội dung)</option>
-                  <option value="attest">attest (Kiểm định)</option>
+                  <option value="all">All event types</option>
+                  <option value="route">Route</option>
+                  <option value="select">Select</option>
+                  <option value="load">Load</option>
+                  <option value="attest">Attest</option>
                 </select>
               </div>
 
               <div class="search-status-bar">
-                <span id="telemetry-stats" class="text-muted">Đang tải sự kiện...</span>
+                <span id="telemetry-stats" class="text-muted">Loading events…</span>
               </div>
             </div>
 
             <div class="metrics-grid metrics-compact">
               <article class="metric-card">
-                <span class="metric-label">TỔNG SỰ KIỆN NẠP</span>
+                <span class="metric-label">Load events</span>
                 <strong class="metric-val" id="telemetry-total-events">—</strong>
-                <small class="metric-sub">Giới hạn 1200 / nguồn</small>
+                <small class="metric-sub">Up to 1,200 events per source</small>
               </article>
               <article class="metric-card">
-                <span class="metric-label">TỔNG TOKEN SỬ DỤNG</span>
+                <span class="metric-label">Tokens used</span>
                 <strong class="metric-val" id="telemetry-total-tokens">Unknown</strong>
-                <small class="metric-sub">Producer không tổng hợp</small>
+                <small class="metric-sub">Producer does not aggregate</small>
               </article>
               <article class="metric-card">
-                <span class="metric-label">CHI PHÍ TỔNG HỢP</span>
+                <span class="metric-label">Reported cost</span>
                 <strong class="metric-val" id="telemetry-total-cost">Unknown</strong>
-                <small class="metric-sub">Không suy đoán hóa đơn</small>
+                <small class="metric-sub">Invoice total unavailable</small>
               </article>
             </div>
           </div>
@@ -1037,15 +1051,15 @@
               <table class="data-table" id="telemetry-table">
                 <thead>
                   <tr>
-                    <th>Thời điểm (UTC)</th>
-                    <th>Nguồn</th>
-                    <th>Giai đoạn</th>
-                    <th>Mã định danh liên quan</th>
-                    <th>Thuộc tính &amp; Bằng chứng</th>
+                    <th>Time (UTC)</th>
+                    <th>Source</th>
+                    <th>Stage</th>
+                    <th>Related IDs</th>
+                    <th>Properties and evidence</th>
                   </tr>
                 </thead>
                 <tbody id="telemetry-table-body">
-                  <tr><td colspan="5" class="text-center text-muted">Đang tải dữ liệu telemetry...</td></tr>
+                  <tr><td colspan="5" class="text-center text-muted">Loading telemetry…</td></tr>
                 </tbody>
               </table>
             </div>
@@ -1055,62 +1069,62 @@
         <!-- 09: VIEW QUALITY -->
         <section id="view-quality" class="view-panel" role="tabpanel" aria-labelledby="tab-quality" hidden>
           <div class="section-lead">
-            <p>Rà soát catalog, nguồn gốc và khả năng tìm kiếm theo từng phạm vi bằng chứng.</p>
+            <p>Review catalog provenance and check retrieval against the available evidence.</p>
           </div>
 
-          <div class="quality-intro" aria-label="Tổng quan chất lượng catalog">
-            <div><span class="quality-eyebrow">ĐỐI CHIẾU NGUỒN</span><h3>Dữ liệu cách ly</h3><p>Biên nhận được ghim theo catalog; các mục chưa được kích hoạt.</p></div>
-            <span class="quality-source" id="catalog-quality-source" role="status">Đang tải hồ sơ…</span>
+          <div class="quality-intro" aria-label="Catalog quality overview">
+            <div><span class="quality-eyebrow">Source verification</span><h3>Quarantined data</h3><p>Receipts are tied to catalog versions. Entries await activation.</p></div>
+            <span class="quality-source" id="catalog-quality-source" role="status">Loading records…</span>
           </div>
-          <nav class="quality-jump" aria-label="Đi tới nội dung chất lượng"><a href="#quality-review-card">Cách ly</a><a href="#quality-duplicates">Nội dung trùng</a><a href="#quality-security-container">Bảo mật</a><a href="#quality-original-container">Nguồn gốc</a><a href="#quality-local-check">Kiểm tra tìm kiếm</a><a href="#quality-benchmark-container">Kết quả trước đây</a></nav>
+          <nav class="quality-jump" aria-label="Jump to quality section"><a href="#quality-review-card">Quarantine</a><a href="#quality-duplicates">Duplicates</a><a href="#quality-security-container">Security</a><a href="#quality-original-container">Provenance</a><a href="#quality-local-check">Retrieval check</a><a href="#quality-benchmark-container">Historical results</a></nav>
           <div class="quality-summary-grid" id="catalog-quality-summary" aria-live="polite"></div>
           <div class="card quality-review-card" id="quality-review-card">
-            <div class="card-header"><div><h3 class="card-title">Danh sách cần xem lại</h3><p class="quality-caption">“Sẵn sàng rà soát” là nguồn có thể kiểm tra, chưa phải phê duyệt để bật.</p></div></div>
+            <div class="card-header"><div><h3 class="card-title">Review queue</h3><p class="quality-caption">“Ready to review” means the source can be inspected. Activation requires approval.</p></div></div>
             <div class="card-body">
-              <div class="quality-toolbar"><label>Nhóm <select id="catalog-quality-filter"><option value="review_required">Sẵn sàng rà soát nguồn</option><option value="source_invalid">Nguồn chưa hợp lệ</option><option value="">Tất cả mục cách ly</option></select></label><label>Tìm tên <input type="search" id="catalog-quality-search" placeholder="Tên kỹ năng"></label></div>
-              <div class="table-container" tabindex="0" aria-label="Danh sách tài nguyên cách ly có thể cuộn"><table class="data-table quality-review-table"><thead><tr><th>Tài nguyên</th><th>Trạng thái nguồn</th><th>Chi tiết</th></tr></thead><tbody id="catalog-quality-rows"><tr><td colspan="3">Đang tải…</td></tr></tbody></table></div>
-              <div class="quality-paging"><span id="catalog-quality-range" role="status"></span><button id="catalog-quality-prev" class="btn btn-subtle" disabled>← Trước</button><button id="catalog-quality-next" class="btn btn-subtle" disabled>Tiếp →</button></div>
+              <div class="quality-toolbar"><label>Group <select id="catalog-quality-filter"><option value="review_required">Ready for source review</option><option value="source_invalid">Invalid source</option><option value="">All quarantined entries</option></select></label><label>Search by name <input type="search" id="catalog-quality-search" placeholder="Skill name"></label></div>
+              <div class="table-container" tabindex="0" aria-label="Scrollable list of quarantined resources"><table class="data-table quality-review-table"><thead><tr><th>Resource</th><th>Source status</th><th>Details</th></tr></thead><tbody id="catalog-quality-rows"><tr><td colspan="3">Loading…</td></tr></tbody></table></div>
+              <div class="quality-paging"><span id="catalog-quality-range" role="status"></span><button id="catalog-quality-prev" class="btn btn-subtle" disabled>← Previous</button><button id="catalog-quality-next" class="btn btn-subtle" disabled>Next →</button></div>
             </div>
           </div>
           <div class="grid-two-col quality-sections">
             <div class="card" id="quality-duplicates">
               <div class="card-header">
-                <h3 class="card-title">Phát hiện Trùng lặp Nội dung (Exact Body Duplicates)</h3>
-                <span class="badge badge-subtle" id="duplicates-count-badge">Đang quét...</span>
+                <h3 class="card-title">Exact body duplicates</h3>
+                <span class="badge badge-subtle" id="duplicates-count-badge">Scanning…</span>
               </div>
               <div class="card-body">
-                <p class="text-muted text-sm">Danh sách các nhóm kỹ năng có cùng mã băm SHA256 phần thân tài nguyên trong catalog (đã tách riêng nội dung trống):</p>
+                <p class="text-muted text-sm">Catalog skills grouped by the SHA-256 hash of their body. Empty bodies are counted separately.</p>
                 <div class="table-container small-table">
                   <table class="data-table">
                     <thead>
                       <tr>
-                        <th>Mã băm SHA256</th>
-                        <th>Số lượng trùng</th>
-                        <th>Loại phát hiện</th>
-                        <th>Tài nguyên trong nhóm (Inspect)</th>
+                        <th>SHA-256 hash</th>
+                        <th>Duplicate count</th>
+                        <th>Finding type</th>
+                        <th>Inspect group members</th>
                       </tr>
                     </thead>
                     <tbody id="duplicates-table-body">
-                      <tr><td colspan="4" class="text-center text-muted">Đang tải danh sách trùng lặp...</td></tr>
+                      <tr><td colspan="4" class="text-center text-muted">Loading duplicates…</td></tr>
                     </tbody>
                   </table>
                 </div>
-                <small class="text-muted text-xs">Các mục có phần thân giống nhau vẫn có thể khác frontmatter, tệp đi kèm và quyền. Không tự gộp hoặc xóa chỉ dựa vào kết quả này.</small>
+                <small class="text-muted text-xs">Identical bodies can have different frontmatter, files and permissions. Review these before merging or deleting entries.</small>
 
                 <!-- Dedicated Empty / Unextracted Bodies Panel -->
                 <div class="empty-bodies-panel mt-md p-sm" id="empty-bodies-panel" hidden>
                   <div class="d-flex justify-between align-center mb-xs">
                     <div class="d-flex align-center gap-xs">
-                      <span class="badge badge-warning" id="empty-bodies-badge">0 thân rỗng</span>
-                      <strong>Tài nguyên Thân Rỗng / Chưa Trích xuất (Empty Body)</strong>
+                      <span class="badge badge-warning" id="empty-bodies-badge">0 empty bodies</span>
+                      <strong>Empty or unextracted bodies</strong>
                     </div>
-                    <span class="badge badge-subtle">Tách khỏi trùng lặp</span>
+                    <span class="badge badge-subtle">Counted separately</span>
                   </div>
                   <p class="text-muted text-xs mb-xs" id="empty-bodies-desc">
-                    Tài nguyên có mã băm SHA256 rỗng (<code>e3b0c442...</code>) do thuộc diện cách ly (quarantine/dangling reference) chưa trích xuất phần thân; đã được tách riêng để không tính lẫn vào Exact Body Duplicates.
+                    Resources with the SHA-256 hash of an empty body (<code>e3b0c442...</code>) are quarantined or unresolved references with no extracted body. These entries are counted separately.
                   </p>
                   <div class="text-xs mt-xs" id="empty-bodies-samples-wrap" hidden>
-                    <span class="text-muted">Mẫu tài nguyên cách ly thân rỗng:</span>
+                    <span class="text-muted">Sample quarantined entries with empty bodies:</span>
                     <div id="empty-bodies-samples" class="d-flex flex-wrap gap-xs mt-xs"></div>
                   </div>
                 </div>
@@ -1119,97 +1133,97 @@
 
             <div class="card">
               <div class="card-header">
-                <h3 class="card-title">Kiểm tra An toàn &amp; Đánh giá Benchmark</h3>
-                <span class="badge badge-warning" id="quality-status-badge">Độc lập &amp; Lịch sử</span>
+                <h3 class="card-title">Security checks and benchmarks</h3>
+                <span class="badge badge-warning" id="quality-status-badge">Independent and historical</span>
               </div>
               <div class="card-body">
                 <div class="quality-item" id="quality-security-container">
                   <div class="quality-item-header">
-                    <strong>1. Quét Bảo mật Tĩnh (Static Security Scan)</strong>
-                    <span class="badge badge-subtle" id="security-scan-badge">Đang quét quy tắc...</span>
+                    <strong>1. Static security scan</strong>
+                    <span class="badge badge-subtle" id="security-scan-badge">Running rules…</span>
                   </div>
-                  <p class="text-muted text-sm" id="security-scan-scope-text">Quét toàn bộ thân catalog (skills + prompts): tách riêng thân rỗng (DATA_QUALITY), mẫu lệnh thực thi và [REDACTED] (cần rà soát nguồn). Không đánh giá frontmatter hoặc chứng minh tài nguyên an toàn.</p>
+                  <p class="text-muted text-sm" id="security-scan-scope-text">Scan skill and prompt bodies for empty content, executable patterns and [REDACTED] markers. Review source and frontmatter separately.</p>
                   <div id="security-scan-summary" class="d-flex flex-wrap gap-xs mt-xs mb-xs"></div>
                   <div class="d-flex flex-wrap gap-xs align-center mt-xs mb-xs" id="security-scan-filters">
-                    <select id="sec-filter-bucket" aria-label="Lọc nhóm kết quả">
-                      <option value="all">Tất cả nhóm</option>
-                      <option value="security_review" selected>Cần rà soát bảo mật (security_review)</option>
-                      <option value="needs_source_review">Chưa xác minh nguồn (needs_source_review)</option>
-                      <option value="confirmed_finding">Xác nhận có vấn đề (confirmed_finding)</option>
-                      <option value="confirmed_example">Ví dụ / Tài liệu an toàn (confirmed_example)</option>
-                      <option value="data_quality">Chất lượng dữ liệu / Thân rỗng (DATA_QUALITY)</option>
-                      <option value="clean">Không khớp quy tắc</option>
+                    <select id="sec-filter-bucket" aria-label="Filter finding group">
+                      <option value="all">All groups</option>
+                      <option value="security_review" selected>Security review (security_review)</option>
+                      <option value="needs_source_review">Source review needed (needs_source_review)</option>
+                      <option value="confirmed_finding">Confirmed finding (confirmed_finding)</option>
+                      <option value="confirmed_example">Confirmed example (confirmed_example)</option>
+                      <option value="data_quality">Data quality / empty body (DATA_QUALITY)</option>
+                      <option value="clean">No rule matched</option>
                     </select>
-                    <select id="sec-filter-kind" aria-label="Lọc loại tài nguyên">
+                    <select id="sec-filter-kind" aria-label="Filter resource type">
                       <option value="all">Skills + Prompts</option>
-                      <option value="skill">Chỉ Skills</option>
-                      <option value="prompt">Chỉ Prompts</option>
+                      <option value="skill">Skills only</option>
+                      <option value="prompt">Prompts only</option>
                     </select>
-                    <select id="sec-filter-rule" aria-label="Lọc quy tắc">
-                      <option value="all">Mọi quy tắc</option>
+                    <select id="sec-filter-rule" aria-label="Filter rule">
+                      <option value="all">All rules</option>
                       <option value="EXECUTION_OR_INJECTION_REVIEW">EXECUTION_OR_INJECTION_REVIEW</option>
                       <option value="REDACTED_CREDENTIAL_REVIEW">REDACTED_CREDENTIAL_REVIEW</option>
                       <option value="EMPTY_BODY">EMPTY_BODY (DATA_QUALITY)</option>
                     </select>
-                    <input id="sec-filter-query" type="search" placeholder="Tìm theo id..." aria-label="Tìm theo tên tài nguyên">
-                    <select id="sec-filter-limit" aria-label="Số dòng mỗi trang">
-                      <option value="20" selected>20 / trang</option>
-                      <option value="50">50 / trang</option>
-                      <option value="100">100 / trang</option>
-                      <option value="200">200 / trang</option>
-                      <option value="500">500 / trang</option>
+                    <input id="sec-filter-query" type="search" placeholder="Search by ID…" aria-label="Search resource names">
+                    <select id="sec-filter-limit" aria-label="Rows per page">
+                      <option value="20" selected>20 per page</option>
+                      <option value="50">50 per page</option>
+                      <option value="100">100 per page</option>
+                      <option value="200">200 per page</option>
+                      <option value="500">500 per page</option>
                     </select>
                   </div>
                   <div class="d-flex flex-wrap gap-xs align-center mt-xs mb-xs" id="security-scan-paging">
-                    <span class="text-xs text-muted" id="security-scan-range">Hiển thị 0 / 0 kết quả</span>
-                    <button type="button" class="btn btn-xs btn-subtle" id="sec-page-prev" disabled>← Trang trước</button>
-                    <button type="button" class="btn btn-xs btn-subtle" id="sec-page-next" disabled>Trang sau →</button>
+                    <span class="text-xs text-muted" id="security-scan-range">Showing 0 of 0 results</span>
+                    <button type="button" class="btn btn-xs btn-subtle" id="sec-page-prev" disabled>← Previous page</button>
+                    <button type="button" class="btn btn-xs btn-subtle" id="sec-page-next" disabled>Next page →</button>
                   </div>
                   <div class="table-container small-table mt-sm" id="security-findings-table-wrap" hidden>
                     <table class="data-table">
                       <thead>
                         <tr>
-                          <th>Tài nguyên</th>
-                          <th>Loại / Mã băm</th>
-                          <th>Quy tắc &amp; Bằng chứng (đã ẩn bí mật)</th>
-                          <th>Phân loại &amp; Khắc phục</th>
+                          <th>Resource</th>
+                          <th>Type / hash</th>
+                          <th>Rule and evidence (secrets redacted)</th>
+                          <th>Classification and remediation</th>
                         </tr>
                       </thead>
                       <tbody id="security-scan-table-body">
-                        <tr><td colspan="4" class="text-center text-muted">Chưa có kết quả quét bảo mật.</td></tr>
+                        <tr><td colspan="4" class="text-center text-muted">No scan results yet.</td></tr>
                       </tbody>
                     </table>
                   </div>
                 </div>
 
                 <div class="quality-item mt-md" id="quality-curation-container">
-                  <div class="quality-item-header"><strong>Danh mục đã phân loại</strong><span class="badge badge-subtle" id="curation-badge">Đang tải…</span></div>
-                  <p class="quality-caption">Bao gồm tài nguyên đã cách ly hoặc loại trùng, kể cả khi không còn trong catalog phục vụ.</p>
+                  <div class="quality-item-header"><strong>Catalog classifications</strong><span class="badge badge-subtle" id="curation-badge">Loading…</span></div>
+                  <p class="quality-caption">Includes resources removed from the served catalog during quarantine or deduplication.</p>
                   <div id="curation-summary" class="quality-summary-grid compact" aria-live="polite"></div>
-                  <div class="quality-toolbar"><label>Tìm ID <input id="curation-search" type="search" maxlength="100"></label><label>Trạng thái <select id="curation-filter"><option value="all">Tất cả</option><option value="active_reviewed">Đã rà soát</option><option value="active_repaired">Đã sửa</option><option value="active_admitted">Đã tiếp nhận</option><option value="active_review_pending">Đang dùng · còn cảnh báo</option><option value="active_policy_blocked">Bị chính sách chặn khi nạp</option><option value="quarantine_security">Cách ly bảo mật</option><option value="quarantine_structure">Cách ly cấu trúc</option><option value="deleted_duplicate">Đã loại trùng</option></select></label></div>
-                  <div class="table-container" tabindex="0" aria-label="Bảng phân loại catalog"><table class="data-table"><thead><tr><th>ID</th><th>Trạng thái</th><th>Lý do</th></tr></thead><tbody id="curation-rows"></tbody></table></div>
-                  <div class="quality-paging"><span id="curation-range" role="status"></span><button id="curation-prev" class="btn btn-subtle" disabled>← Trước</button><button id="curation-next" class="btn btn-subtle" disabled>Tiếp →</button></div>
+                  <div class="quality-toolbar"><label>Search ID <input id="curation-search" type="search" maxlength="100"></label><label>Status <select id="curation-filter"><option value="all">All</option><option value="active_reviewed">Reviewed</option><option value="active_repaired">Fixed</option><option value="active_admitted">Accepted</option><option value="active_review_pending">Active with warnings</option><option value="active_policy_blocked">Load blocked by policy</option><option value="quarantine_security">Security quarantine</option><option value="quarantine_structure">Structural quarantine</option><option value="deleted_duplicate">Deduplicated</option></select></label></div>
+                  <div class="table-container" tabindex="0" aria-label="Catalog classifications table"><table class="data-table"><thead><tr><th>ID</th><th>Status</th><th>Reason</th></tr></thead><tbody id="curation-rows"></tbody></table></div>
+                  <div class="quality-paging"><span id="curation-range" role="status"></span><button id="curation-prev" class="btn btn-subtle" disabled>← Previous</button><button id="curation-next" class="btn btn-subtle" disabled>Next →</button></div>
                 </div>
                 <div class="quality-item mt-md" id="quality-original-container">
-                  <div class="quality-item-header"><strong>2. Đối chiếu tài liệu gốc</strong><span class="badge badge-subtle" id="original-source-badge">Đang tải…</span></div>
-                  <p class="quality-caption">Biên nhận chỉ chứa metadata và mã băm, không hiển thị nội dung gốc. Phân loại tự động và kết quả đối chiếu nguồn là hai bằng chứng riêng.</p>
+                  <div class="quality-item-header"><strong>2. Original source verification</strong><span class="badge badge-subtle" id="original-source-badge">Loading…</span></div>
+                  <p class="quality-caption">Receipts contain metadata and hashes. Automated classifications and source verification provide separate evidence.</p>
                   <div id="original-source-summary" class="quality-summary-grid compact" aria-live="polite"></div>
-                  <div class="quality-toolbar"><label>Kết quả nguồn <select id="original-source-filter"><option value="all">Tất cả</option><option value="needs_source_review">Cần rà soát tiếp</option><option value="confirmed_example">Ví dụ đã đối chiếu</option><option value="no_rule_hit">Không khớp quy tắc</option><option value="source_unavailable">Không đọc được nguồn</option><option value="source_changed">Nguồn đã thay đổi</option></select></label></div>
-                  <div class="table-container" tabindex="0" aria-label="Bảng đối chiếu nguồn có thể cuộn"><table class="data-table"><thead><tr><th>Tài nguyên</th><th>Trạng thái</th><th>Dấu vết</th></tr></thead><tbody id="original-source-rows"></tbody></table></div>
-                  <div class="quality-paging"><span id="original-source-range" role="status"></span><button id="original-source-prev" class="btn btn-subtle" disabled>← Trước</button><button id="original-source-next" class="btn btn-subtle" disabled>Tiếp →</button></div>
+                  <div class="quality-toolbar"><label>Source result <select id="original-source-filter"><option value="all">All</option><option value="needs_source_review">Further review needed</option><option value="confirmed_example">Verified example</option><option value="no_rule_hit">No rule matched</option><option value="source_unavailable">Source unreadable</option><option value="source_changed">Source changed</option></select></label></div>
+                  <div class="table-container" tabindex="0" aria-label="Scrollable source verification table"><table class="data-table"><thead><tr><th>Resource</th><th>Status</th><th>Evidence trail</th></tr></thead><tbody id="original-source-rows"></tbody></table></div>
+                  <div class="quality-paging"><span id="original-source-range" role="status"></span><button id="original-source-prev" class="btn btn-subtle" disabled>← Previous</button><button id="original-source-next" class="btn btn-subtle" disabled>Next →</button></div>
                 </div>
                 <div class="quality-item mt-md" id="quality-local-check">
-                  <div class="quality-item-header"><strong>3. Kiểm tra tìm kiếm cục bộ</strong><span id="retrieval-check-status" class="badge badge-subtle">Chưa chạy</span></div>
-                  <p class="quality-caption">Kiểm tra tìm kiếm ngữ nghĩa với kỹ năng review-checklist trong ví dụ công khai. Nếu bạn dùng catalog khác, kết quả có thể không khớp. Không gọi mô hình chấm điểm trả phí.</p>
-                  <button id="retrieval-check-btn" type="button" class="btn btn-primary">Chạy kiểm tra cục bộ</button>
+                  <div class="quality-item-header"><strong>3. Local retrieval check</strong><span id="retrieval-check-status" class="badge badge-subtle">Ready to run</span></div>
+                  <p class="quality-caption">Run a local semantic search for review-checklist from the public example. Results may vary with a different catalog. This check uses no paid scoring model.</p>
+                  <button id="retrieval-check-btn" type="button" class="btn btn-primary">Run local check</button>
                   <div id="retrieval-check-results" role="status" aria-live="polite"></div>
                 </div>
                 <div class="quality-item mt-md" id="quality-benchmark-container">
                   <div class="quality-item-header">
-                    <strong>4. Đánh giá router trước đây</strong>
-                    <span class="badge badge-subtle" id="benchmark-status-badge">Dữ liệu Lịch sử (Offline)</span>
+                    <strong>4. Historical router evaluation</strong>
+                    <span class="badge badge-subtle" id="benchmark-status-badge">Historical data (offline)</span>
                   </div>
-                  <p class="text-muted text-sm">Đọc lại bằng chứng nghiệm thu hồi quy từ hồ sơ lưu trữ AUDIT.json. Tuyệt đối không tự ý chạy lại mô hình trả phí khi mở trang web.</p>
+                  <p class="text-muted text-sm">Read the regression evidence recorded in AUDIT.json.</p>
                   <div id="benchmark-metrics-display" class="benchmark-grid" hidden></div>
                 </div>
               </div>
@@ -1220,19 +1234,19 @@
         <!-- 10: VIEW CONFIG -->
         <section id="view-config" class="view-panel" role="tabpanel" aria-labelledby="tab-config" hidden>
           <div class="section-lead">
-            <p>Quản lý cấu hình dashboard, ma trận năng lực quản trị hệ thống, tình trạng đối soát biên lai và khu vực cách ly (Quarantine).</p>
+            <p>Manage Dashboard settings, capabilities, sync receipts and quarantined resources.</p>
           </div>
 
-          <section class="card" id="intake-panel" aria-label="Nhập lô kỹ năng và prompt"></section>
+          <section class="card" id="intake-panel" aria-label="Batch skill and prompt intake"></section>
           <!-- Owned Dashboard Settings Card -->
           <div class="card mb-md">
             <div class="card-header">
               <div>
-                <h3 class="card-title">Cấu hình Bảng điều khiển (Owned Dashboard Settings)</h3>
-                <p class="text-xs text-muted mt-xs">Quản lý giới hạn phân trang tài nguyên, kích thước sơ đồ năng lực và bộ lọc nguồn điều hướng (telemetry source) của riêng dashboard. Không thay đổi mô hình System 1, ngưỡng quyết định hay cấu hình máy chủ host.</p>
+                <h3 class="card-title">Dashboard settings</h3>
+                <p class="text-xs text-muted mt-xs">Configure catalog page size, graph page size and the Dashboard telemetry source filter.</p>
               </div>
               <div class="flex-align-center gap-xs">
-                <span id="owned-settings-status-badge" class="badge badge-subtle">Trạng thái: Đang tải...</span>
+                <span id="owned-settings-status-badge" class="badge badge-subtle">Status: Loading…</span>
                 <span id="owned-settings-hash-badge" class="badge badge-subtle font-mono text-xs">Hash: —</span>
               </div>
             </div>
@@ -1240,40 +1254,40 @@
             <div class="card-body">
               <form id="owned-settings-form" class="grid-three-col gap-md">
                 <div class="form-group">
-                  <label for="cfg-resource-limit"><strong>Giới hạn Tài nguyên (resource_limit)</strong></label>
+                  <label for="cfg-resource-limit"><strong>Catalog page size (resource_limit)</strong></label>
                   <input type="number" id="cfg-resource-limit" class="form-control" min="1" max="100" value="50" required>
-                  <small class="text-muted">Phân trang danh mục (1..100). Mặc định: 50</small>
+                  <small class="text-muted">Catalog pagination (1–100). Default: 50</small>
                 </div>
 
                 <div class="form-group">
-                  <label for="cfg-graph-limit"><strong>Giới hạn Sơ đồ (graph_limit)</strong></label>
+                  <label for="cfg-graph-limit"><strong>Graph size limit (graph_limit)</strong></label>
                   <input type="number" id="cfg-graph-limit" class="form-control" min="1" max="200" value="100" required>
-                  <small class="text-muted">Số node sơ đồ năng lực (1..200). Mặc định: 100</small>
+                  <small class="text-muted">Graph nodes per page (1–200). Default: 100</small>
                 </div>
 
                 <div class="form-group">
-                  <label for="cfg-routing-source"><strong>Nguồn Điều hướng (routing_source)</strong></label>
+                  <label for="cfg-routing-source"><strong>Routing source (routing_source)</strong></label>
                   <select id="cfg-routing-source" class="form-control">
-                    <option value="all">Tất cả nguồn (all)</option>
-                    <option value="native">Chỉ Native (native)</option>
-                    <option value="docker">Chỉ Docker (docker)</option>
+                    <option value="all">All sources (all)</option>
+                    <option value="native">Native only (native)</option>
+                    <option value="docker">Docker only (docker)</option>
                   </select>
-                  <small class="text-muted">Lọc sự kiện điều hướng &amp; telemetry</small>
+                  <small class="text-muted">Filter routing and telemetry events</small>
                 </div>
               </form>
 
               <div class="flex-between-wrap mt-md pt-sm border-top">
                 <div class="flex-align-center gap-sm">
-                  <button type="button" class="btn btn-primary" id="btn-save-owned-settings">Áp dụng Cài đặt (config.apply)</button>
+                  <button type="button" class="btn btn-primary" id="btn-save-owned-settings">Apply settings (config.apply)</button>
                   <span id="owned-settings-msg" class="text-xs text-muted" aria-live="polite"></span>
                 </div>
 
                 <div class="flex-align-center gap-xs">
-                  <label for="cfg-settings-backup-select" class="text-xs text-muted">Bản sao lưu:</label>
+                  <label for="cfg-settings-backup-select" class="text-xs text-muted">Backup:</label>
                   <select id="cfg-settings-backup-select" class="form-control form-control-sm">
-                    <option value="">-- Chưa có bản sao lưu --</option>
+                    <option value="">No backups yet</option>
                   </select>
-                  <button type="button" class="btn btn-secondary btn-sm" id="btn-rollback-owned-settings">Khôi phục (config.rollback)</button>
+                  <button type="button" class="btn btn-secondary btn-sm" id="btn-rollback-owned-settings">Restore (config.rollback)</button>
                 </div>
               </div>
             </div>
@@ -1282,15 +1296,15 @@
             <div class="card-footer bg-subtle border-top p-sm">
               <div class="flex-between-wrap">
                 <div>
-                  <strong>Bản Snapshot Nguồn Đã Làm Sạch (Sanitized Source Snapshot)</strong>
-                  <div class="text-xs text-muted">Xuất cấu hình đã lọc (agents, MCP, plugins) vào trạng thái quản trị cục bộ làm cầu nối container. Không kích hoạt runtime host.</div>
+                  <strong>Sanitized source snapshot</strong>
+                  <div class="text-xs text-muted">Export filtered agent, MCP and plugin settings for use by the container.</div>
                   <div class="text-xs mt-xs">
-                    <span id="snapshot-status-badge" class="badge badge-subtle">Trạng thái: Chưa xuất</span>
+                    <span id="snapshot-status-badge" class="badge badge-subtle">Status: Not exported</span>
                     <span id="snapshot-hash-badge" class="badge badge-subtle font-mono text-xs">Hash: —</span>
                   </div>
                 </div>
                 <div class="flex-align-center gap-xs mt-xs">
-                  <button type="button" class="btn btn-secondary btn-sm" id="btn-create-source-snapshot">Tạo Snapshot (config.snapshot)</button>
+                  <button type="button" class="btn btn-secondary btn-sm" id="btn-create-source-snapshot">Create snapshot (config.snapshot)</button>
                 </div>
               </div>
             </div>
@@ -1299,16 +1313,16 @@
             <div class="card-footer bg-subtle border-top p-sm" id="live-runtime-container">
               <div class="flex-between-wrap">
                 <div>
-                  <strong>Trạng thái Runtime Backend Quan sát (Live Backend Status)</strong>
-                  <div class="text-xs text-muted">Kết nối trực tiếp loopback tới Skill Hub server (8765). Trạng thái warmup, offload dGPU và vector BGE-M3 thực tế.</div>
+                  <strong>Observed backend status</strong>
+                  <div class="text-xs text-muted">Probe Skill Hub on port 8765 for warmup, dGPU offload and BGE-M3 vectors.</div>
                   <div class="text-xs mt-xs flex-align-center gap-xs" id="live-runtime-badges">
-                    <span id="live-runtime-status-badge" class="badge badge-subtle">Runtime: Đang kiểm tra...</span>
+                    <span id="live-runtime-status-badge" class="badge badge-subtle">Runtime: Checking…</span>
                     <span id="live-runtime-gpu-badge" class="badge badge-subtle">dGPU: —</span>
                     <span id="live-runtime-vectors-badge" class="badge badge-subtle font-mono text-xs">Vectors: —</span>
                   </div>
                 </div>
                 <div class="text-xs text-muted text-right mt-xs" id="live-runtime-observed-time">
-                  Quan sát lúc: —
+                  Observed: —
                 </div>
               </div>
             </div>
@@ -1316,21 +1330,21 @@
 
           <div class="card">
             <div class="card-header">
-              <h3 class="card-title">Ma trận Năng lực Quản trị (Capabilities Matrix)</h3>
-              <span class="badge badge-subtle">Chính sách vận hành an toàn</span>
+              <h3 class="card-title">Administrative capability matrix</h3>
+              <span class="badge badge-subtle">Operational policy</span>
             </div>
             <div class="table-container">
               <table class="data-table" id="capabilities-table">
                 <thead>
                   <tr>
-                    <th>Thao tác (Operation)</th>
-                    <th>Trạng thái Hỗ trợ</th>
-                    <th>Mức độ Rủi ro</th>
-                    <th>Lý do &amp; Ranh giới Kỹ thuật</th>
+                    <th>Operation</th>
+                    <th>Support status</th>
+                    <th>Risk level</th>
+                    <th>Reason and technical scope</th>
                   </tr>
                 </thead>
                 <tbody id="capabilities-table-body">
-                  <tr><td colspan="4" class="text-center text-muted">Đang tải ma trận năng lực...</td></tr>
+                  <tr><td colspan="4" class="text-center text-muted">Loading capabilities…</td></tr>
                 </tbody>
               </table>
             </div>
@@ -1339,22 +1353,22 @@
           <div class="grid-two-col">
             <div class="card">
               <div class="card-header">
-                <h3 class="card-title">Biên lai Đồng bộ &amp; Đối soát Lịch sử (Sync Receipts)</h3>
+                <h3 class="card-title">Sync receipts</h3>
                 <span class="badge badge-subtle">Reconciliation</span>
               </div>
               <div class="table-container small-table">
                 <table class="data-table">
                   <thead>
                     <tr>
-                      <th>Lược đồ (Schema)</th>
-                      <th>Thời điểm tạo</th>
-                      <th>Kết quả</th>
+                      <th>Schema</th>
+                      <th>Created</th>
+                      <th>Result</th>
                       <th>Dry Run</th>
                       <th>Runtime Check</th>
                     </tr>
                   </thead>
                   <tbody id="sync-table-body">
-                    <tr><td colspan="5" class="text-center text-muted">Đang tải biên lai đồng bộ...</td></tr>
+                    <tr><td colspan="5" class="text-center text-muted">Loading sync receipts…</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -1362,22 +1376,22 @@
 
             <div class="card">
               <div class="card-header">
-                <h3 class="card-title">Khu vực Cách ly &amp; Bản sao lưu (Quarantine Backups)</h3>
-                <span class="badge badge-subtle" id="quarantine-count-badge">0 bản ghi</span>
+                <h3 class="card-title">Quarantine and backups</h3>
+                <span class="badge badge-subtle" id="quarantine-count-badge">0 records</span>
               </div>
               <div class="table-container small-table">
                 <table class="data-table">
                   <thead>
                     <tr>
-                      <th>Loại</th>
-                      <th>Tên tài nguyên</th>
-                      <th>Phiên bản</th>
-                      <th>Sao lưu</th>
-                      <th>Hành động</th>
+                      <th>Type</th>
+                      <th>Resource name</th>
+                      <th>Version</th>
+                      <th>Backup</th>
+                      <th>Actions</th>
                     </tr>
                   </thead>
                   <tbody id="quarantine-table-body">
-                    <tr><td colspan="5" class="text-center text-muted">Chưa có tài nguyên nào trong quarantine.</td></tr>
+                    <tr><td colspan="5" class="text-center text-muted">Quarantine is empty.</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -1389,17 +1403,17 @@
     </div>
 
     <!-- Right-side Resource Inspector Drawer -->
-    <aside id="inspector-drawer" class="inspector-drawer" aria-label="Kiểm tra chi tiết tài nguyên" aria-hidden="true">
+    <aside id="inspector-drawer" class="inspector-drawer" aria-label="Inspect resource details" aria-hidden="true">
       <div class="inspector-header">
         <div class="inspector-title-wrap">
-          <span class="eyebrow" id="inspector-eyebrow">CHI TIẾT TÀI NGUYÊN</span>
-          <h3 id="inspector-name" class="inspector-name">Chọn một tài nguyên</h3>
+          <span class="eyebrow" id="inspector-eyebrow">Resource details</span>
+          <h3 id="inspector-name" class="inspector-name">Select a resource</h3>
         </div>
-        <button id="inspector-close-btn" class="btn btn-icon btn-subtle" aria-label="Đóng bảng chi tiết">✕</button>
+        <button id="inspector-close-btn" class="btn btn-icon btn-subtle" aria-label="Close resource details">✕</button>
       </div>
 
       <div class="inspector-body" id="inspector-body">
-        <p class="text-muted">Chọn một kỹ năng, mẫu prompt hoặc node trên sơ đồ để xem đầy đủ thông tin chi tiết, mã hash và nội dung.</p>
+        <p class="text-muted">Select a skill, prompt or graph node to inspect its details, hash and content.</p>
       </div>
     </aside>
   </div>
@@ -1409,58 +1423,60 @@
     <div class="modal-dialog">
       <div class="modal-header">
         <div>
-          <span class="eyebrow">QUẢN LÝ CÁCH LY AN TOÀN</span>
-          <h3 class="modal-title" id="modal-title">Nhập / Cập nhật Tài nguyên (Quarantine)</h3>
+          <span class="eyebrow">Quarantine</span>
+          <h3 class="modal-title" id="modal-title">Import or update quarantined resources</h3>
         </div>
-        <button id="modal-close-btn" class="btn btn-icon btn-subtle" aria-label="Đóng hộp thoại">✕</button>
+        <button id="modal-close-btn" class="btn btn-icon btn-subtle" aria-label="Close dialog">✕</button>
       </div>
 
       <div class="modal-body">
         <!-- Step 1: Input Form -->
         <div id="modal-step-1">
           <div class="form-group">
-            <label for="op-select" class="form-label">Thao tác Quản trị:</label>
+            <label for="op-select" class="form-label">Operation:</label>
             <select id="op-select" class="form-control">
-              <option value="resource.import">resource.import (Nhập mới vào quarantine)</option>
-              <option value="resource.update">resource.update (Cập nhật tài nguyên đang có trong quarantine)</option>
-              <option value="resource.revise">resource.revise (Tạo bản sửa đổi từ catalog vào quarantine)</option>
-              <option value="resource.rollback">resource.rollback (Khôi phục bản sao lưu cũ)</option>
+              <option value="resource.import">resource.import (Import into quarantine)</option>
+              <option value="resource.update">resource.update (Update a quarantined resource)</option>
+              <option value="resource.revise">resource.revise (Stage a catalog revision in quarantine)</option>
+              <option value="resource.rollback">resource.rollback (Restore a backup)</option>
             </select>
-            <small class="form-hint" id="op-hint">Nhập mới tài nguyên chưa từng tồn tại trong quarantine.</small>
+            <small class="form-hint" id="op-hint">Import a resource that has never been quarantined.</small>
           </div>
 
           <input type="hidden" id="op-catalog-source" value="">
 
           <div class="form-row">
             <div class="form-group flex-1">
-              <label for="op-kind" class="form-label">Loại tài nguyên:</label>
+              <label for="op-kind" class="form-label">Resource type:</label>
               <select id="op-kind" class="form-control">
-                <option value="skill">Kỹ năng (skill)</option>
-                <option value="prompt">Mẫu lời nhắc (prompt)</option>
+                <option value="skill">Skill</option>
+                <option value="prompt">Prompt</option>
               </select>
             </div>
 
             <div class="form-group flex-2">
-              <label for="op-name" class="form-label">Tên tài nguyên (1-100 ký tự a-z, 0-9, ., _, -):</label>
-              <input type="text" id="op-name" class="form-control" placeholder="ví dụ: my-new-skill" pattern="[a-zA-Z0-9][a-zA-Z0-9._\-]{0,99}" required>
+              <label for="op-name" class="form-label">Resource name (1–100 characters: a–z, 0–9, ., _, -):</label>
+              <input type="text" id="op-name" class="form-control" placeholder="e.g. my-new-skill" pattern="[a-zA-Z0-9][a-zA-Z0-9._\-]{0,99}" required>
             </div>
           </div>
 
           <div class="form-group" id="op-version-group" hidden>
-            <label for="op-version" class="form-label">Mã hash bản sao lưu (Backup Record Hash - 64 hex):</label>
-            <input type="text" id="op-version" class="form-control font-mono" placeholder="64 ký tự hex sha256">
-            <small class="form-hint">Nhập mã hash của bản sao lưu trong thư mục versions để khôi phục.</small>
+            <label for="op-version" class="form-label">Backup record hash (64 hex characters):</label>
+            <input type="text" id="op-version" class="form-control font-mono" placeholder="64-character SHA-256 hash">
+            <small class="form-hint">Enter the backup hash from the versions directory to restore it.</small>
           </div>
 
           <div class="form-group">
-            <label for="op-expected-sha" class="form-label">Mã băm nguồn hiện tại dự kiến (expected_sha256):</label>
+            <label for="op-expected-sha" class="form-label">Expected current source hash (expected_sha256):</label>
             <input type="text" id="op-expected-sha" class="form-control font-mono" value="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" required>
-            <small class="form-hint">Đối với nhập mới: rỗng b'' có hash là e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855.</small>
+            <small class="form-hint">For a new import, the hash of the empty source is e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855.</small>
           </div>
 
           <div class="form-group" id="op-content-group">
-            <label for="op-content" class="form-label">Nội dung tài nguyên (1 .. 262,144 bytes, không chứa thông tin nhạy cảm):</label>
-            <textarea id="op-content" class="form-control font-mono" rows="8" placeholder="# Tiêu đề tài nguyên&#10;&#10;Nội dung kỹ năng hoặc mẫu prompt..." required></textarea>
+            <label for="op-content" class="form-label">Resource content (1–262,144 bytes, exclude sensitive information):</label>
+            <textarea id="op-content" class="form-control font-mono" rows="8" placeholder="# Resource title
+
+Skill or prompt content…" required></textarea>
             <div class="char-count"><span id="content-bytes">0</span> / 262,144 bytes</div>
           </div>
 
@@ -1470,31 +1486,31 @@
         <!-- Step 2: Preview Plan Confirmation -->
         <div id="modal-step-2" hidden>
           <div class="notice-box notice-warning">
-            <strong>Xem trước Kế hoạch đã phát hành (Plan Generated)</strong>
-            <p>Kiểm tra nội dung thay đổi và phạm vi tác động bên dưới trước khi xác nhận.</p>
+            <strong>Preview generated plan</strong>
+            <p>Review the changes and scope below before confirming.</p>
           </div>
 
           <div class="plan-details-box">
             <div class="plan-row">
-              <span class="plan-key">Mã Kế hoạch (Plan ID):</span>
+              <span class="plan-key">Plan ID:</span>
               <code class="plan-val" id="plan-id-display">—</code>
             </div>
             <div class="plan-row">
-              <span class="plan-key">Thời hạn hiệu lực:</span>
-              <span class="plan-val text-warning" id="plan-expiry-display">300 giây</span>
+              <span class="plan-key">Valid for:</span>
+              <span class="plan-val text-warning" id="plan-expiry-display">300 seconds</span>
             </div>
             <div class="plan-row">
-              <span class="plan-key">Tài nguyên tác động:</span>
+              <span class="plan-key">Affected resource:</span>
               <span class="plan-val" id="plan-target-display">—</span>
             </div>
             <div class="plan-row">
-              <span class="plan-key">Bản sao lưu trước đó:</span>
-              <code class="plan-val" id="plan-backup-display">Không có (nhập mới)</code>
+              <span class="plan-key">Previous backup:</span>
+              <code class="plan-val" id="plan-backup-display">None (new import)</code>
             </div>
           </div>
 
           <div class="form-group">
-            <strong>Nội dung thay đổi</strong>
+            <strong>Changes</strong>
             <pre class="code-block-sm" id="plan-changes-preview"></pre>
             <p id="plan-ownership-display" class="text-xs text-muted"></p>
           </div>
@@ -1502,7 +1518,7 @@
           <div class="form-group checkbox-group">
             <label class="checkbox-label">
               <input type="checkbox" id="confirm-apply-check">
-              <span>Tôi xác nhận áp dụng đúng nội dung và phạm vi đã hiển thị. Kế hoạch chỉ ghi vào trạng thái dashboard hoặc vùng cách ly, không kích hoạt cấu hình host.</span>
+              <span>I confirm the changes and scope shown above. This plan writes to Dashboard state or quarantine.</span>
             </label>
           </div>
 
@@ -1512,16 +1528,16 @@
         <!-- Step 3: Success Result -->
         <div id="modal-step-3" hidden>
           <div class="notice-box notice-success">
-            <strong>Đã áp dụng kế hoạch</strong>
-            <p id="modal-success-msg">Tài nguyên đã được lưu trữ an toàn trong khu vực cách ly.</p>
+            <strong>Plan applied</strong>
+            <p id="modal-success-msg">The resource was stored in quarantine.</p>
           </div>
           <div class="plan-details-box">
             <div class="plan-row">
-              <span class="plan-key">Mã băm bản ghi mới:</span>
+              <span class="plan-key">New record hash:</span>
               <code class="plan-val" id="applied-sha-display">—</code>
             </div>
             <div class="plan-row">
-              <span class="plan-key">Mã băm sao lưu đã lưu:</span>
+              <span class="plan-key">Saved backup hash:</span>
               <code class="plan-val" id="applied-backup-display">—</code>
             </div>
           </div>
@@ -1531,19 +1547,19 @@
       <div class="modal-footer">
         <!-- Footer buttons for Step 1 -->
         <div id="modal-footer-step-1" class="modal-footer-btns">
-          <button id="modal-cancel-btn" class="btn btn-subtle">Hủy bỏ</button>
-          <button id="modal-preview-btn" class="btn btn-primary">Xem trước Kế hoạch (Preview)</button>
+          <button id="modal-cancel-btn" class="btn btn-subtle">Cancel</button>
+          <button id="modal-preview-btn" class="btn btn-primary">Preview plan</button>
         </div>
 
         <!-- Footer buttons for Step 2 -->
         <div id="modal-footer-step-2" class="modal-footer-btns" hidden>
-          <button id="modal-back-btn" class="btn btn-subtle">Quay lại</button>
-          <button id="modal-apply-btn" class="btn btn-primary" disabled>Xác nhận Thực thi (Apply)</button>
+          <button id="modal-back-btn" class="btn btn-subtle">Back</button>
+          <button id="modal-apply-btn" class="btn btn-primary" disabled>Confirm and apply</button>
         </div>
 
         <!-- Footer buttons for Step 3 -->
         <div id="modal-footer-step-3" class="modal-footer-btns" hidden>
-          <button id="modal-done-btn" class="btn btn-primary">Hoàn tất</button>
+          <button id="modal-done-btn" class="btn btn-primary">Done</button>
         </div>
       </div>
     </div>
@@ -1551,10 +1567,10 @@
 
   <footer class="app-footer">
     <div class="footer-left">
-      <span>Skill Hub · Bảng điều khiển cục bộ</span>
+      <span>Skill Hub · Local dashboard</span>
     </div>
     <div class="footer-right">
-      <span class="text-muted">Cổng dịch vụ: 8769 · Catalog và telemetry theo nguồn ghi nhận · Router trả phí chỉ chạy khi yêu cầu</span>
+      <span class="text-muted">Catalog and telemetry show observed source data. Paid routing runs on request.</span>
     </div>
   </footer>
 </body>

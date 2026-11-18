@@ -8,19 +8,31 @@ assert.deepEqual(fromDocument(skill.content, 'SKILL.md', 'prompt'), skill);
 assert.equal(fromDocument('Lời nhắc', 'nhac-viec.md', 'prompt').name, 'nhac-viec');
 assert.equal(fromDocument('---\nname: "quoted-name"\ndescription: demo\n---\nbody', 'file.md', 'skill').name, 'quoted-name');
 for (const name of ['../escape', 'CON.txt', 'nul', 'COM1', 'bad.', 'bắt-đầu', 'a'.repeat(101)]) assert.throws(() => validateDraft([{...prompt, name}]));
-assert.throws(() => validateDraft([{...prompt, content: ' '}]), /không được để trống/);
+assert.throws(() => validateDraft([{...prompt, content: ' '}]), /cannot be empty/);
 assert.throws(() => validateDraft([{...prompt, content: 'x\0y'}]), /NUL/);
-assert.throws(() => validateDraft([{...prompt, content: 123}]), /văn bản/);
-assert.throws(() => validateDraft([prompt, {...prompt, name: 'VI-EXAMPLE'}]), /trùng/);
-assert.throws(() => validateDraft([{...skill, name: 'mismatch'}]), /phải khớp/);
+assert.throws(() => validateDraft([{...prompt, content: 123}]), /must be text/);
+assert.throws(() => validateDraft([prompt, {...prompt, name: 'VI-EXAMPLE'}]), /duplicate/);
+assert.throws(() => validateDraft([{...skill, name: 'mismatch'}]), /must match/);
 assert.throws(() => validateDraft([{...skill, content: '---\nname: vi-example\n---\nbody'}]), /description/);
 assert.throws(() => validateDraft([{...skill, content: skill.content.replace('description:', 'name: duplicate\ndescription:')}]), /name/);
 assert.throws(() => validateDraft([]));
 assert.throws(() => validateDraft(Array.from({length: 21}, (_, i) => ({...prompt, name: 'p' + i}))));
 assert.equal(validateDraft([{...prompt, content: 'á'.repeat(32768)}]), 65536);
-assert.throws(() => validateDraft([{...prompt, content: 'á'.repeat(32769)}]), /65.536/);
-assert.throws(() => validateDraft(Array.from({length: 4}, (_, i) => ({...prompt, name: 'p' + i, content: 'x'.repeat(65536)}))), /250.000/);
-assert.match(errorText(new Error('expired or consumed plan'), ''), /xem trước lại/);
-assert.match(errorText(new Error('identity conflicts with catalog snapshot'), ''), /trùng catalog/);
-assert.match(errorText(new Error('invalid or credential-looking content'), ''), /dữ liệu nhạy cảm/);
+assert.throws(() => validateDraft([{...prompt, content: 'á'.repeat(32769)}]), /65,536/);
+assert.throws(() => validateDraft(Array.from({length: 4}, (_, i) => ({...prompt, name: 'p' + i, content: 'x'.repeat(65536)}))), /250,000/);
+assert.match(errorText(new Error('expired or consumed plan'), ''), /Preview the batch again/);
+assert.match(errorText(new Error('identity conflicts with catalog snapshot'), ''), /already exists in the catalog/);
+assert.match(errorText(new Error('invalid or credential-looking content'), ''), /Remove sensitive data/);
+globalThis.skillHubText = (_en, vi) => vi;
+try {
+  assert.throws(() => validateDraft([{...prompt, content: ' '}]), /không được để trống/);
+  assert.match(errorText(new Error('expired or consumed plan'), ''), /xem trước lại/);
+  let captured;
+  try { validateDraft([{...prompt, content: ' '}]); } catch (error) { captured = error; }
+  assert.match(captured.message, /không được để trống/);
+  globalThis.skillHubText = en => en;
+  assert.match(errorText(captured, ''), /cannot be empty/);
+} finally {
+  delete globalThis.skillHubText;
+}
 console.log('Intake UI validation checks passed (UTF-8, limits, identity, frontmatter, mixed kinds).');

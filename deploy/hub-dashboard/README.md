@@ -1,6 +1,6 @@
 # Portable dashboard
 
-The bundled Vietnamese dashboard browses skills and prompts, searches full text,
+The bundled Dashboard browses skills and prompts, searches full text,
 inspects resource bodies, and stages imports in its own quarantine. It builds its
 catalog from the same local Markdown directory as the MCP service on every start.
 No private database, snapshot bundle, API key, or native host configuration is
@@ -18,6 +18,12 @@ Skill Hub. To use a different content tree, set `SKILL_HUB_CONTENT_DIR` to a fol
 containing `skills/NAME/SKILL.md` and optional `prompts/`. Set `HUB_DASHBOARD_PORT`
 when 8769 is occupied; Host/Origin checks use that same port. Recreate the service
 after changing either setting. Restart to rebuild the catalog after editing files.
+
+The Dashboard opens in English and follows the system appearance. Use the
+language and theme controls to change these preferences. In the capabilities
+view, search for the bundled skill by name, then choose it to see the recorded
+relationships. The example catalog can show resources without edges.
+[Browser controls and graph guide](../../src/hub-dashboard/static/README.md)
 
 Content is mounted read-only. Catalog construction uses temporary container
 storage; settings and quarantine persist in the `dashboard-state` named volume.

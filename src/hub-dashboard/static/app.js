@@ -7,6 +7,26 @@
 
 'use strict';
 
+const dashboardText = (en, vi) => window.skillHubText?.(en, vi) ?? en;
+const dashboardLocale = () => dashboardText('en-US', 'vi-VN');
+const dashboardPage = page => dashboardText(`Page ${page}`, dashboardPage(page));
+
+// Keep only the latest read for each view, so switching languages never contacts a provider.
+const latestViewReads = new Map();
+function viewReader(view, cached) {
+  if (!cached) {
+    const reads = new Map();
+    latestViewReads.set(view, reads);
+    return endpoint => {
+      const result = apiFetch(endpoint);
+      reads.set(endpoint, result);
+      return result;
+    };
+  }
+  const reads = latestViewReads.get(view);
+  return endpoint => reads?.get(endpoint) ?? Promise.reject(new Error(dashboardText('Request pending', 'Đang tải dữ liệu')));
+}
+
 // ============================================================================
 // State Management
 // ============================================================================
@@ -40,23 +60,6 @@ const state = {
     scoresKindFilter: 'all'
   },
   telemetry: { source: 'all', kind: 'all', items: [] },
-  graph: {
-    zoom: 1.0,
-    panX: 0,
-    panY: 0,
-    typeFilter: 'all',
-    searchQuery: '',
-    depth: 1,
-    focusedNodeId: null,
-    selectedNodeId: null,
-    selectedEdgeId: null,
-    nodes: [],
-    edges: [],
-    nodeMap: new Map(),
-    isDragging: false,
-    startX: 0,
-    startY: 0
-  },
 
   // Modal state
   modal: {
@@ -91,7 +94,7 @@ function formatIsoTime(isoStr) {
   try {
     const d = new Date(isoStr);
     if (isNaN(d.getTime())) return escapeHtml(isoStr);
-    return d.toLocaleString('vi-VN', {
+    return d.toLocaleString(dashboardLocale(), {
       timeZone: 'UTC',
       year: 'numeric',
       month: '2-digit',
@@ -136,7 +139,7 @@ function formatRouteOutcome(outcome) {
 }
 
 function renderSafeMarkdownText(text) {
-  if (!text) return '<p class="text-muted">Không có nội dung</p>';
+  if (!text) return `<p class="text-muted">${dashboardText('No content', 'Không có nội dung')}</p>`;
   const lines = text.split('\n');
   let html = '';
   let inCodeBlock = false;
@@ -180,7 +183,7 @@ function renderSafeMarkdownText(text) {
     html += `<pre class="code-block-sm"><code>${escapeHtml(codeBuffer.join('\n'))}</code></pre>`;
   }
 
-  return html || '<p class="text-muted">Không có nội dung</p>';
+  return html || `<p class="text-muted">${dashboardText('No content', 'Không có nội dung')}</p>`;
 }
 
 // ============================================================================
@@ -199,7 +202,7 @@ async function ensureCsrfToken(force = false) {
         state.csrfToken = json.data.csrf_token;
         const badge = document.getElementById('csrf-badge');
         if (badge) {
-          badge.textContent = 'CSRF: Sẵn sàng';
+          badge.textContent = dashboardText('CSRF: Ready', 'CSRF: Sẵn sàng');
           badge.className = 'badge badge-alive';
         }
       }
@@ -269,7 +272,7 @@ async function apiFetch(endpoint, options = {}) {
   }
 
   const result = await resp.json();
-  document.getElementById('connection-text').textContent = 'Đã kết nối dashboard';
+  document.getElementById('connection-text').textContent = dashboardText("Dashboard connected", 'Đã kết nối dashboard');
   document.getElementById('connection-dot').className = 'status-indicator status-alive';
   return result;
 }
@@ -317,7 +320,7 @@ function switchView(viewName) {
     const labelEl = selectedTab.querySelector('.nav-label');
     const titleText = labelEl ? labelEl.textContent.trim() : selectedTab.textContent.replace(/^\s*\d+\s*/, '').trim();
     document.getElementById('view-title').textContent = titleText;
-    document.getElementById('view-eyebrow').textContent = 'PHÂN HỆ ' + String(tabs.indexOf(selectedTab) + 1).padStart(2, '0');
+    document.getElementById('view-eyebrow').textContent = window.skillHubText('Dashboard', 'Bảng điều khiển');
   }
 
   // Update nav tabs aria-selected
@@ -337,7 +340,7 @@ function switchView(viewName) {
   loadViewData(viewName);
 }
 
-async function loadViewData(viewName) {
+async function loadViewData(viewName, cached = false) {
   hideGlobalAlert();
   const refreshBtn = document.getElementById('refresh-btn');
   if (refreshBtn) refreshBtn.querySelector('.spin-icon').classList.add('spinning');
@@ -346,40 +349,40 @@ async function loadViewData(viewName) {
   try {
     switch (viewName) {
       case 'overview':
-        await loadOverviewView();
+        await loadOverviewView(viewReader('overview', cached));
         break;
       case 'skills':
-        await loadSkillsView();
+        await loadSkillsView(viewReader('skills', cached));
         break;
       case 'graph':
-        await loadGraphView();
+        await graphExplorer.load();
         break;
       case 'routing':
         await loadRoutingView();
         break;
       case 'agents':
-        await loadAgentsView();
+        await loadAgentsView(viewReader('agents', cached));
         break;
       case 'integrations':
-        await loadIntegrationsView();
+        await loadIntegrationsView(cached ? lastIntegrationProbe : null, viewReader('integrations', cached));
         break;
       case 'library':
-        await loadLibraryView();
+        await loadLibraryView(viewReader('library', cached));
         break;
       case 'telemetry':
-        await loadTelemetryView();
+        await loadTelemetryView(viewReader('telemetry', cached));
         break;
       case 'quality':
-        await loadQualityView();
+        await loadQualityView(viewReader('quality', cached), cached);
         break;
       case 'config':
-        await loadConfigView();
+        await loadConfigView(viewReader('config', cached), cached);
         break;
     }
   } catch (err) {
-    document.getElementById('connection-text').textContent = 'Không tải được phân hệ';
+    document.getElementById('connection-text').textContent = dashboardText("Unable to load this view", 'Không tải được phân hệ');
     document.getElementById('connection-dot').className = 'status-indicator status-blocked';
-    showGlobalAlert(`Lỗi tải dữ liệu phân hệ ${viewName}: ${err.message}`);
+    showGlobalAlert(`${dashboardText("Could not load ", "Lỗi tải dữ liệu phân hệ ")}${viewName}: ${err.message}`);
   } finally {
     state.isRefreshing = false;
     if (refreshBtn) refreshBtn.querySelector('.spin-icon').classList.remove('spinning');
@@ -390,62 +393,62 @@ async function loadViewData(viewName) {
 // 01: Overview View
 // ----------------------------------------------------------------------------
 
-async function loadOverviewView() {
-  const resp = await apiFetch('overview');
+async function loadOverviewView(read = viewReader('overview', false)) {
+  const resp = await read('overview');
   const data = resp.data || {};
   const counts = data.counts || {};
 
   // Metrics numbers - render dynamically when available, otherwise truthful indicator
   document.getElementById('metric-skills').textContent = counts.skills !== null && counts.skills !== undefined ?
-    Number(counts.skills).toLocaleString('vi-VN') : '—';
+    Number(counts.skills).toLocaleString(dashboardLocale()) : '—';
   document.getElementById('metric-skills-sub').textContent = counts.skills !== null && counts.skills !== undefined ?
-    'Đã nạp vào catalog SQLite' : 'Không có dữ liệu';
+    dashboardText("Available in the SQLite catalog", 'Đã nạp vào catalog SQLite') : dashboardText("No data", 'Không có dữ liệu');
 
   document.getElementById('metric-prompts').textContent = counts.prompts !== null && counts.prompts !== undefined ?
-    Number(counts.prompts).toLocaleString('vi-VN') : '—';
+    Number(counts.prompts).toLocaleString(dashboardLocale()) : '—';
   document.getElementById('metric-prompts-sub').textContent = counts.prompts !== null && counts.prompts !== undefined ?
-    'Catalog prompts & templates' : 'Không có dữ liệu';
+    dashboardText('Catalog prompts and templates', 'Prompt và mẫu trong catalog') : dashboardText("No data", 'Không có dữ liệu');
 
   document.getElementById('metric-agents').textContent = counts.agents !== null && counts.agents !== undefined ?
-    Number(counts.agents).toLocaleString('vi-VN') : 'Chưa nạp';
+    Number(counts.agents).toLocaleString(dashboardLocale()) : dashboardText("Unavailable", 'Chưa nạp');
   document.getElementById('metric-agents-sub').textContent = counts.agents !== null && counts.agents !== undefined ?
-    'Profiles OpenBot & Hub' : 'Adapter danh bạ chưa kết nối';
+    dashboardText('OpenBot and Hub profiles', 'Hồ sơ OpenBot và Hub') : dashboardText("Directory adapter unavailable", 'Adapter danh bạ chưa kết nối');
 
   document.getElementById('metric-mcp').textContent = counts.mcp !== null && counts.mcp !== undefined ?
-    Number(counts.mcp).toLocaleString('vi-VN') : 'Snapshot';
+    Number(counts.mcp).toLocaleString(dashboardLocale()) : 'Snapshot';
   document.getElementById('metric-mcp-sub').textContent = counts.mcp !== null && counts.mcp !== undefined ?
-    'Servers đã cấu hình' : 'Bản chụp danh mục công cụ';
+    dashboardText("Configured servers", 'Servers đã cấu hình') : dashboardText("Tool catalog snapshot", 'Bản chụp danh mục công cụ');
 
   document.getElementById('metric-plugins').textContent = counts.plugins !== null && counts.plugins !== undefined ?
-    Number(counts.plugins).toLocaleString('vi-VN') : 'Chưa nạp';
+    Number(counts.plugins).toLocaleString(dashboardLocale()) : dashboardText("Unavailable", 'Chưa nạp');
   document.getElementById('metric-plugins-sub').textContent = counts.plugins !== null && counts.plugins !== undefined ?
-    'Plugins Claude đã cài' : 'Chưa ghi nhận bản ghi';
+    dashboardText("Installed Claude plugins", 'Plugins Claude đã cài') : dashboardText("No records observed", 'Chưa ghi nhận bản ghi');
 
   // Update live nav pills
   const pillSkills = document.getElementById('pill-count-skills');
   if (pillSkills && counts.skills !== null && counts.skills !== undefined) {
-    pillSkills.textContent = Number(counts.skills).toLocaleString('vi-VN');
+    pillSkills.textContent = Number(counts.skills).toLocaleString(dashboardLocale());
   }
   const pillPrompts = document.getElementById('pill-count-prompts');
   if (pillPrompts && counts.prompts !== null && counts.prompts !== undefined) {
-    pillPrompts.textContent = Number(counts.prompts).toLocaleString('vi-VN');
+    pillPrompts.textContent = Number(counts.prompts).toLocaleString(dashboardLocale());
   }
   const pillAgents = document.getElementById('pill-count-agents');
   if (pillAgents) {
     pillAgents.textContent = counts.agents !== null && counts.agents !== undefined ?
-      Number(counts.agents).toLocaleString('vi-VN') : '—';
+      Number(counts.agents).toLocaleString(dashboardLocale()) : '—';
   }
   const pillMcp = document.getElementById('pill-count-mcp');
   if (pillMcp) {
     pillMcp.textContent = counts.mcp !== null && counts.mcp !== undefined ?
-      Number(counts.mcp).toLocaleString('vi-VN') : '—';
+      Number(counts.mcp).toLocaleString(dashboardLocale()) : '—';
   }
 
   // Sources health
   const sourcesWrap = document.getElementById('overview-sources');
   sourcesWrap.innerHTML = '';
   const sources = resp.sources || [];
-  document.getElementById('overview-observed-at').textContent = 'Thời điểm: ' + formatIsoTime(resp.observed_at);
+  document.getElementById('overview-observed-at').textContent = dashboardText("Observed: ", 'Thời điểm: ') + formatIsoTime(resp.observed_at);
   sources.forEach(src => {
     const item = document.createElement('div');
     item.className = 'source-item';
@@ -458,9 +461,9 @@ async function loadOverviewView() {
         <span class="badge ${statusClass}">${escapeHtml(src.status || 'unknown')}</span>
       </div>
       <div class="source-meta">
-        <div>Loại: <code>${escapeHtml(src.type || 'sqlite')}</code></div>
-        <div>Độ tươi mới: <span class="badge ${freshnessClass}">${escapeHtml(src.freshness || 'unknown')}</span></div>
-        <div>Cập nhật lần cuối: ${formatIsoTime(src.modified_at)}</div>
+        <div>${dashboardText('Type', 'Loại')}: <code>${escapeHtml(src.type || 'sqlite')}</code></div>
+        <div>${dashboardText('Freshness', 'Độ tươi mới')}: <span class="badge ${freshnessClass}">${escapeHtml(src.freshness || 'unknown')}</span></div>
+        <div>${dashboardText('Last updated', 'Cập nhật lần cuối')}: ${formatIsoTime(src.modified_at)}</div>
       </div>
     `;
     sourcesWrap.appendChild(item);
@@ -471,7 +474,7 @@ async function loadOverviewView() {
   tbody.innerHTML = '';
   const activities = data.recent_activity || [];
   if (activities.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">Không có sự kiện telemetry gần đây</td></tr>';
+    tbody.innerHTML = `<tr><td colspan="4" class="text-center text-muted">${dashboardText('No recent telemetry events', 'Không có sự kiện telemetry gần đây')}</td></tr>`;
   } else {
     activities.forEach(ev => {
       const tr = document.createElement('tr');
@@ -499,12 +502,12 @@ function renderOverviewChart(usageData) {
   chartSvg.innerHTML = '';
   // Zero inline styles for CSP compliance
   legendWrap.innerHTML = `
-    <div class="legend-item"><span class="legend-color legend-color-native"></span><span>Native telemetry</span></div>
-    <div class="legend-item"><span class="legend-color legend-color-docker"></span><span>Docker telemetry</span></div>
+    <div class="legend-item"><span class="legend-color legend-color-native"></span><span>${dashboardText('Native telemetry', 'Telemetry native')}</span></div>
+    <div class="legend-item"><span class="legend-color legend-color-docker"></span><span>${dashboardText('Docker telemetry', 'Telemetry Docker')}</span></div>
   `;
 
   if (!usageData || usageData.length === 0) {
-    chartSvg.innerHTML = `<text x="300" y="120" text-anchor="middle" fill="#9baec4" font-size="12">Không có dữ liệu biểu đồ sự kiện</text>`;
+    chartSvg.innerHTML = `<text x="300" y="120" text-anchor="middle" fill="#9baec4" font-size="12">${dashboardText('No event data to plot', 'Không có dữ liệu biểu đồ sự kiện')}</text>`;
     return;
   }
 
@@ -570,7 +573,7 @@ function renderOverviewChart(usageData) {
       rect.setAttribute('fill', '#689bd6');
       rect.setAttribute('rx', '2');
       const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
-      title.textContent = `Native: ${nativeEvents} sự kiện (${date})`;
+      title.textContent = `Native: ${nativeEvents}${dashboardText(" events (", " sự kiện (")}${date})`;
       rect.appendChild(title);
       chartSvg.appendChild(rect);
     }
@@ -585,7 +588,7 @@ function renderOverviewChart(usageData) {
       rect.setAttribute('fill', '#4ec9b0');
       rect.setAttribute('rx', '2');
       const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
-      title.textContent = `Docker: ${dockerEvents} sự kiện (${date})`;
+      title.textContent = `Docker: ${dockerEvents}${dashboardText(" events (", " sự kiện (")}${date})`;
       rect.appendChild(title);
       chartSvg.appendChild(rect);
     }
@@ -606,7 +609,7 @@ function renderOverviewChart(usageData) {
 // 02: Skill Registry View
 // ----------------------------------------------------------------------------
 
-async function loadSkillsView() {
+async function loadSkillsView(read = viewReader('skills', false)) {
   const modeSelect = document.getElementById('skill-search-mode');
   const searchMode = modeSelect ? modeSelect.value : (state.skills.mode || 'fts');
   state.skills.mode = searchMode;
@@ -619,22 +622,22 @@ async function loadSkillsView() {
   // Semantic search mode
   if (searchMode === 'semantic' && q) {
     try {
-      const resp = await apiFetch(`semantic?q=${encodeURIComponent(q)}&limit=${limit}`);
+      const resp = await read(`semantic?q=${encodeURIComponent(q)}&limit=${limit}`);
       const data = resp.data || resp || {};
       const hits = data.hits || [];
       state.skills.total = hits.length;
       state.skills.items = hits;
 
       if (statusLabel) {
-        statusLabel.textContent = `Chế độ tìm kiếm: Tìm ngữ nghĩa (dGPU BGE-M3, ${data.elapsed_ms || 0} ms)`;
+        statusLabel.textContent = `${dashboardText("Search mode: Semantic (BGE-M3 on dGPU, ", "Chế độ tìm kiếm: Tìm ngữ nghĩa (dGPU BGE-M3, ")}${data.elapsed_ms || 0} ms)`;
       }
       if (totalCountEl) {
-        totalCountEl.textContent = `Tổng: ${hits.length} kết quả`;
+        totalCountEl.textContent = `${dashboardText("Total: ", "Tổng: ")}${hits.length}${dashboardText(" results", " kết quả")}`;
       }
 
       tbody.innerHTML = '';
       if (hits.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Không tìm thấy kết quả ngữ nghĩa nào phù hợp.</td></tr>';
+        tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted">${dashboardText('No matching semantic results', 'Không tìm thấy kết quả ngữ nghĩa nào phù hợp')}.</td></tr>`;
       } else {
         hits.forEach((hit, idx) => {
           const tr = document.createElement('tr');
@@ -651,14 +654,14 @@ async function loadSkillsView() {
           tr.innerHTML = `
             <td>
               <strong>${escapeHtml(cleanName)}</strong>
-              <div class="text-xs text-muted">${escapeHtml(hit.evidence?.summary || hit.evidence?.chunk || 'Kết quả tương đồng ngữ nghĩa BGE-M3')}</div>
+              <div class="text-xs text-muted">${escapeHtml(hit.evidence?.summary || hit.evidence?.chunk || dashboardText("BGE-M3 semantic similarity match", 'Kết quả tương đồng ngữ nghĩa BGE-M3'))}</div>
             </td>
             <td><code>semantic-vector</code></td>
-            <td class="font-mono text-xs" title="Mô hình BGE-M3 dGPU">bge-m3:latest</td>
+            <td class="font-mono text-xs" title="${dashboardText('BGE-M3 model on', 'Mô hình BGE-M3')} dGPU">bge-m3:latest</td>
             <td>${scoreBadge}</td>
             <td>
               <div class="pagination-controls">
-                <button class="btn btn-subtle btn-inspect-skill" data-id="${escapeHtml(cleanName)}" data-kind="${escapeHtml(kind)}">Chi tiết</button>
+                <button class="btn btn-subtle btn-inspect-skill" data-id="${escapeHtml(cleanName)}" data-kind="${escapeHtml(kind)}">${dashboardText('Details', 'Chi tiết')}</button>
               </div>
             </td>
           `;
@@ -674,14 +677,14 @@ async function loadSkillsView() {
 
       const start = hits.length > 0 ? 1 : 0;
       const end = hits.length;
-      document.getElementById('skills-pagination-info').textContent = `Hiển thị ${start} - ${end} của ${hits.length}`;
-      document.getElementById('skills-page-indicator').textContent = 'Trang 1';
+      document.getElementById('skills-pagination-info').textContent = `${dashboardText("Showing ", "Hiển thị ")}${start} - ${end}${dashboardText(" of ", " của ")}${hits.length}`;
+      document.getElementById('skills-page-indicator').textContent = dashboardPage(1);
       document.getElementById('skills-prev-page').disabled = true;
       document.getElementById('skills-next-page').disabled = true;
       return;
     } catch (e) {
       if (statusLabel) {
-        statusLabel.textContent = `Chế độ: Lỗi tìm kiếm ngữ nghĩa (${e.message})`;
+        statusLabel.textContent = `${dashboardText("Semantic search failed (", "Chế độ: Lỗi tìm kiếm ngữ nghĩa (")}${e.message})`;
       }
     }
   }
@@ -692,20 +695,20 @@ async function loadSkillsView() {
   if (q) queryUrl += `&q=${encodeURIComponent(q)}`;
   if (domain) queryUrl += `&domain=${encodeURIComponent(domain)}`;
 
-  const resp = await apiFetch(queryUrl);
+  const resp = await read(queryUrl);
   const data = resp.data || {};
   state.skills.total = data.total || 0;
   state.skills.items = data.items || [];
 
   if (statusLabel) {
     if (searchMode === 'semantic') {
-      statusLabel.textContent = 'Chế độ tìm kiếm: Ngữ nghĩa (Nhập từ khóa để tìm vector BGE-M3; đang hiển thị catalog đầy đủ)';
+      statusLabel.textContent = dashboardText("Search mode: Semantic. Enter a query to search BGE-M3 vectors. Showing the full catalog.", 'Chế độ tìm kiếm: Ngữ nghĩa (Nhập từ khóa để tìm vector BGE-M3; đang hiển thị catalog đầy đủ)');
     } else {
-      statusLabel.textContent = 'Chế độ tìm kiếm: ' + (data.search_mode || 'Đọc catalog FTS');
+      statusLabel.textContent = dashboardText("Search mode: ", 'Chế độ tìm kiếm: ') + (data.search_mode || dashboardText("Catalog full-text search", 'Đọc catalog FTS'));
     }
   }
   if (totalCountEl) {
-    totalCountEl.textContent = `Tổng: ${state.skills.total.toLocaleString('vi-VN')} kỹ năng`;
+    totalCountEl.textContent = `${dashboardText("Total: ", "Tổng: ")}${state.skills.total.toLocaleString(dashboardLocale())}${dashboardText(" skills", " kỹ năng")}`;
   }
 
   // Populate domains dropdown if empty
@@ -724,25 +727,25 @@ async function loadSkillsView() {
   // Table body
   tbody.innerHTML = '';
   if (state.skills.items.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Không tìm thấy kỹ năng nào phù hợp.</td></tr>';
+    tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted">${dashboardText('No matching skills', 'Không tìm thấy kỹ năng nào phù hợp')}.</td></tr>`;
   } else {
     state.skills.items.forEach(skill => {
       const tr = document.createElement('tr');
-      const activeBadge = skill.active ? '<span class="badge badge-alive">Hoạt động</span>' : '<span class="badge badge-muted">Tắt</span>';
+      const activeBadge = skill.active ? `<span class="badge badge-alive">${dashboardText('Active', 'Hoạt động')}</span>` : `<span class="badge badge-muted">${dashboardText('Disabled', 'Tắt')}</span>`;
       const versionShort = skill.version ? skill.version.slice(0, 12) + '…' : '—';
 
       tr.innerHTML = `
         <td>
           <strong>${escapeHtml(skill.name)}</strong>
-          <div class="text-xs text-muted">${escapeHtml(skill.description || 'Không có mô tả')}</div>
+          <div class="text-xs text-muted">${escapeHtml(skill.description || dashboardText("No description", 'Không có mô tả'))}</div>
         </td>
         <td><code>${escapeHtml(skill.domain || 'general')}</code></td>
         <td class="font-mono text-xs" title="${escapeHtml(skill.version || '')}">${escapeHtml(versionShort)}</td>
         <td>${activeBadge}</td>
         <td>
           <div class="pagination-controls">
-            <button class="btn btn-subtle btn-inspect-skill" data-id="${escapeHtml(skill.id)}" data-kind="skill">Chi tiết</button>
-            <button class="btn btn-secondary btn-revise-catalog" data-id="${escapeHtml(skill.id)}" data-kind="skill">Sửa đổi</button>
+            <button class="btn btn-subtle btn-inspect-skill" data-id="${escapeHtml(skill.id)}" data-kind="skill">${dashboardText('Details', 'Chi tiết')}</button>
+            <button class="btn btn-secondary btn-revise-catalog" data-id="${escapeHtml(skill.id)}" data-kind="skill">${dashboardText('Revise', 'Sửa đổi')}</button>
           </div>
         </td>
       `;
@@ -766,8 +769,8 @@ async function loadSkillsView() {
   // Pagination update
   const start = state.skills.total > 0 ? offset + 1 : 0;
   const end = Math.min(offset + limit, state.skills.total);
-  document.getElementById('skills-pagination-info').textContent = `Hiển thị ${start} - ${end} của ${state.skills.total.toLocaleString('vi-VN')}`;
-  document.getElementById('skills-page-indicator').textContent = `Trang ${page}`;
+  document.getElementById('skills-pagination-info').textContent = `${dashboardText("Showing ", "Hiển thị ")}${start} - ${end}${dashboardText(" of ", " của ")}${state.skills.total.toLocaleString(dashboardLocale())}`;
+  document.getElementById('skills-page-indicator').textContent = dashboardPage(page);
   document.getElementById('skills-prev-page').disabled = page <= 1;
   document.getElementById('skills-next-page').disabled = end >= state.skills.total;
 }
@@ -776,298 +779,7 @@ async function loadSkillsView() {
 // 03: Capability Graph Explorer View
 // ----------------------------------------------------------------------------
 
-async function loadGraphView() {
-  const type = state.graph.typeFilter || 'all';
-  const q = state.graph.searchQuery || '';
-  const depth = state.graph.depth !== undefined ? state.graph.depth : 1;
-  const limit = state.owned?.settings?.graph_limit || 100;
-
-  let queryUrl = `graph?type=${encodeURIComponent(type)}&limit=${limit}`;
-  if (q) queryUrl += `&q=${encodeURIComponent(q)}`;
-  if (state.graph.focusedNodeId) {
-    queryUrl += `&node_id=${encodeURIComponent(state.graph.focusedNodeId)}&depth=${encodeURIComponent(depth)}`;
-  }
-
-  const resp = await apiFetch(queryUrl);
-  const data = resp.data || {};
-  state.graph.nodes = data.nodes || [];
-  state.graph.edges = data.edges || [];
-
-  const focusNotice = state.graph.focusedNodeId ? ` [Tập trung: ${state.graph.focusedNodeId}]` : '';
-  const truncNotice = data.truncated ? ' (Đã giới hạn hiển thị)' : '';
-  const statsEl = document.getElementById('graph-stats');
-  if (statsEl) {
-    statsEl.textContent = `Đã nạp ${state.graph.nodes.length} nodes, ${state.graph.edges.length} liên kết phụ thuộc (Tổng khớp: ${data.total || 0})${focusNotice}${truncNotice}`;
-  }
-
-  const focusBtn = document.getElementById('graph-focus-btn');
-  if (focusBtn) {
-    focusBtn.disabled = !state.graph.selectedNodeId;
-  }
-  const resetBtn = document.getElementById('graph-reset-focus-btn');
-  if (resetBtn) {
-    resetBtn.hidden = !state.graph.focusedNodeId;
-  }
-
-  renderCapabilityGraph();
-}
-
-function renderCapabilityGraph() {
-  const nodesGroup = document.getElementById('graph-nodes-group');
-  const edgesGroup = document.getElementById('graph-edges-group');
-  if (!nodesGroup || !edgesGroup) return;
-
-  nodesGroup.innerHTML = '';
-  edgesGroup.innerHTML = '';
-
-  state.graph.nodeMap.clear();
-  const cols = 5;
-  const cellW = 300;
-  const cellH = 130;
-  const padX = 80;
-  const padY = 60;
-
-  state.graph.nodes.forEach((node, idx) => {
-    const col = idx % cols;
-    const row = Math.floor(idx / cols);
-    const x = padX + col * cellW;
-    const y = padY + row * cellH;
-    state.graph.nodeMap.set(node.id, { node, x, y });
-  });
-
-  // Render Edges with keyboard accessibility & inspection
-  state.graph.edges.forEach(edge => {
-    const sPos = state.graph.nodeMap.get(edge.source);
-    const tPos = state.graph.nodeMap.get(edge.target);
-    if (!sPos || !tPos) return;
-
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    const x1 = sPos.x + 110;
-    const y1 = sPos.y + 35;
-    const x2 = tPos.x + 110;
-    const y2 = tPos.y + 35;
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    const cx = x1 + dx / 2;
-    const cy = y1 + dy / 2 - 24;
-
-    path.setAttribute('d', `M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`);
-    path.setAttribute('class', 'graph-edge');
-    path.setAttribute('marker-end', 'url(#arrow)');
-    path.setAttribute('tabindex', '0');
-    path.setAttribute('role', 'button');
-    path.setAttribute('aria-label', `Liên kết từ ${edge.source} đến ${edge.target} (${edge.type || 'alias_of'})`);
-
-    const selectEdge = () => {
-      document.querySelectorAll('.graph-edge.selected, .graph-node.selected').forEach(el => el.classList.remove('selected'));
-      path.classList.add('selected');
-      state.graph.selectedEdgeId = edge.id;
-      openEdgeInspector(edge);
-    };
-
-    path.addEventListener('click', selectEdge);
-    path.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        selectEdge();
-      }
-    });
-
-    edgesGroup.appendChild(path);
-  });
-
-  // Render Nodes with keyboard accessibility & zero inline styles
-  state.graph.nodeMap.forEach(({ node, x, y }) => {
-    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    g.setAttribute('class', 'graph-node');
-    g.setAttribute('transform', `translate(${x}, ${y})`);
-    g.setAttribute('tabindex', '0');
-    g.setAttribute('role', 'button');
-    g.setAttribute('aria-label', `Node ${node.label} loại ${node.type}`);
-
-    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    rect.setAttribute('width', '240');
-    rect.setAttribute('height', '72');
-    rect.setAttribute('class', `graph-node-rect type-${node.type}`);
-
-    const title = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    title.setAttribute('x', '14');
-    title.setAttribute('y', '30');
-    title.setAttribute('class', 'graph-node-text');
-    title.textContent = truncateStr(node.label, 24);
-
-    const sub = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    sub.setAttribute('x', '14');
-    sub.setAttribute('y', '52');
-    sub.setAttribute('class', 'graph-node-sub');
-    const ver = (node.metadata && node.metadata.version) ? node.metadata.version.slice(0, 10) : '';
-    sub.textContent = `${node.type.toUpperCase()} · ${ver || node.status || ''}`;
-
-    g.appendChild(rect);
-    g.appendChild(title);
-    g.appendChild(sub);
-
-    const selectNode = () => {
-      document.querySelectorAll('.graph-node.selected, .graph-edge.selected').forEach(el => el.classList.remove('selected'));
-      g.classList.add('selected');
-      state.graph.selectedNodeId = node.id;
-      const focusBtn = document.getElementById('graph-focus-btn');
-      if (focusBtn) focusBtn.disabled = false;
-      openGraphNodeInspector(node);
-    };
-
-    g.addEventListener('click', selectNode);
-    g.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        selectNode();
-      }
-    });
-
-    nodesGroup.appendChild(g);
-  });
-
-  updateGraphTransform();
-}
-
-function updateGraphTransform() {
-  const svg = document.getElementById('graph-svg');
-  if (!svg) return;
-  const nodesG = document.getElementById('graph-nodes-group');
-  const edgesG = document.getElementById('graph-edges-group');
-  const transformVal = `translate(${state.graph.panX}, ${state.graph.panY}) scale(${state.graph.zoom})`;
-  if (nodesG) nodesG.setAttribute('transform', transformVal);
-  if (edgesG) edgesG.setAttribute('transform', transformVal);
-  const zoomBadge = document.getElementById('graph-zoom-level');
-  if (zoomBadge) zoomBadge.textContent = Math.round(state.graph.zoom * 100) + '%';
-}
-
-function fitGraphToExtent() {
-  const viewport = document.getElementById('graph-viewport');
-  if (!viewport || state.graph.nodeMap.size === 0) return;
-
-  let minX = Infinity;
-  let maxX = -Infinity;
-  let minY = Infinity;
-  let maxY = -Infinity;
-
-  state.graph.nodeMap.forEach(({ x, y }) => {
-    minX = Math.min(minX, x);
-    maxX = Math.max(maxX, x + 240);
-    minY = Math.min(minY, y);
-    maxY = Math.max(maxY, y + 72);
-  });
-
-  const bboxW = Math.max(maxX - minX, 100);
-  const bboxH = Math.max(maxY - minY, 100);
-  const pad = 60;
-  const viewW = Math.max(viewport.clientWidth, 300);
-  const viewH = Math.max(viewport.clientHeight, 300);
-
-  const scaleX = (viewW - pad * 2) / bboxW;
-  const scaleY = (viewH - pad * 2) / bboxH;
-  const zoom = Math.min(Math.max(Math.min(scaleX, scaleY), 0.25), 1.8);
-
-  state.graph.zoom = zoom;
-  state.graph.panX = (viewW - bboxW * zoom) / 2 - minX * zoom;
-  state.graph.panY = (viewH - bboxH * zoom) / 2 - minY * zoom;
-  updateGraphTransform();
-}
-
-function setupGraphControls() {
-  const viewport = document.getElementById('graph-viewport');
-  if (!viewport) return;
-
-  viewport.addEventListener('mousedown', (e) => {
-    if (e.target.closest('.graph-node') || e.target.closest('.graph-edge')) return;
-    state.graph.isDragging = true;
-    state.graph.startX = e.clientX - state.graph.panX;
-    state.graph.startY = e.clientY - state.graph.panY;
-    viewport.classList.add('dragging');
-  });
-
-  window.addEventListener('mousemove', (e) => {
-    if (!state.graph.isDragging) return;
-    state.graph.panX = e.clientX - state.graph.startX;
-    state.graph.panY = e.clientY - state.graph.startY;
-    updateGraphTransform();
-  });
-
-  window.addEventListener('mouseup', () => {
-    state.graph.isDragging = false;
-    viewport.classList.remove('dragging');
-  });
-
-  document.getElementById('graph-zoom-in')?.addEventListener('click', () => {
-    state.graph.zoom = Math.min(state.graph.zoom + 0.15, 2.5);
-    updateGraphTransform();
-  });
-
-  document.getElementById('graph-zoom-out')?.addEventListener('click', () => {
-    state.graph.zoom = Math.max(state.graph.zoom - 0.15, 0.25);
-    updateGraphTransform();
-  });
-
-  document.getElementById('graph-zoom-reset')?.addEventListener('click', () => {
-    state.graph.zoom = 1.0;
-    state.graph.panX = 0;
-    state.graph.panY = 0;
-    updateGraphTransform();
-  });
-
-  document.getElementById('graph-zoom-fit')?.addEventListener('click', fitGraphToExtent);
-
-  document.getElementById('graph-type-filter')?.addEventListener('change', (e) => {
-    state.graph.typeFilter = e.target.value;
-    loadGraphView();
-  });
-
-  let filterDebounce = null;
-  document.getElementById('graph-filter-input')?.addEventListener('input', (e) => {
-    clearTimeout(filterDebounce);
-    filterDebounce = setTimeout(() => {
-      state.graph.searchQuery = e.target.value.trim();
-      loadGraphView();
-    }, 300);
-  });
-
-  document.getElementById('graph-depth-filter')?.addEventListener('change', (e) => {
-    state.graph.depth = parseInt(e.target.value, 10);
-    if (state.graph.focusedNodeId) {
-      loadGraphView();
-    }
-  });
-
-  document.getElementById('graph-focus-btn')?.addEventListener('click', () => {
-    if (!state.graph.selectedNodeId) return;
-    state.graph.focusedNodeId = state.graph.selectedNodeId;
-    loadGraphView();
-  });
-
-  document.getElementById('graph-reset-focus-btn')?.addEventListener('click', () => {
-    state.graph.focusedNodeId = null;
-    loadGraphView();
-  });
-}
-
-function openGraphNodeInspector(target) {
-  let node = null;
-  if (typeof target === 'object' && target !== null && target.id) {
-    node = target;
-  } else if (typeof target === 'string') {
-    node = state.graph.nodes.find(n => n.id === target) || null;
-    if (!node) {
-      const idStr = target;
-      let type = 'skill';
-      if (idStr.startsWith('agent:')) type = 'agent';
-      else if (idStr.startsWith('mcp:')) type = 'mcp';
-      else if (idStr.startsWith('prompt:')) type = 'prompt';
-      else if (idStr.startsWith('document:')) type = 'document';
-      else if (idStr.startsWith('project:')) type = 'project';
-      node = { id: idStr, type: type, label: idStr, status: 'projected', metadata: {} };
-    }
-  }
-
+function openGraphNodeInspector(node) {
   if (!node) return;
 
   if (node.type === 'agent') {
@@ -1095,11 +807,9 @@ function openGraphNodeInspector(target) {
   } else if (node.type === 'document') {
     openResourceInspector(node.id, 'document');
   } else if (node.type === 'skill') {
-    const skillName = node.label || (node.id.startsWith('skill:') ? node.id.slice(6) : node.id);
-    openResourceInspector(skillName, 'skill');
+    openResourceInspector(node.id, 'skill');
   } else if (node.type === 'prompt') {
-    const promptName = node.label || (node.id.startsWith('prompt:') ? node.id.slice(7) : node.id);
-    openResourceInspector(promptName, 'prompt');
+    openResourceInspector(node.id, 'prompt');
   } else {
     openGenericNodeInspector(node);
   }
@@ -1114,8 +824,8 @@ function openMcpInspector(mcp) {
   eyebrowEl.textContent = 'CHI TIẾT MÁY CHỦ MCP';
   nameEl.textContent = mcp.name || mcp.id;
 
-  const enabledBadge = mcp.enabled === true ? '<span class="badge badge-alive">Bật</span>' :
-    (mcp.enabled === false ? '<span class="badge badge-muted">Tắt</span>' : '<span class="badge badge-subtle">Chưa ghi nhận (Unknown)</span>');
+  const enabledBadge = mcp.enabled === true ? `<span class="badge badge-alive">Bật</span>` :
+    (mcp.enabled === false ? `<span class="badge badge-muted">Tắt</span>` : `<span class="badge badge-subtle">Chưa ghi nhận (Unknown)</span>`);
 
   const toolsHtml = (mcp.tools || []).map(t => `<span class="tool-tag">${escapeHtml(t.name || t)}</span>`).join(' ') ||
     '<span class="text-muted text-xs">Không có công cụ cụ thể hoặc chưa probe</span>';
@@ -1962,7 +1672,7 @@ function openRouteInspector(route) {
   const { text: outcomeText, badgeClass: outcomeBadgeClass } = formatRouteOutcome(route.outcome);
 
   // Fallback detection: absence != false
-  let fallbackHtml = '<span class="badge badge-subtle">Chưa ghi nhận (Unknown)</span>';
+  let fallbackHtml = `<span class="badge badge-subtle">Chưa ghi nhận (Unknown)</span>`;
   if (route.outcome === 'FALLBACK' || route.fallback === true || (route.events || []).some(e => e.kind === 'fallback' || e.fields?.fallback === true)) {
     fallbackHtml = '<span class="badge badge-warning">Có kích hoạt</span>';
   } else if (route.fallback === false) {
@@ -2022,7 +1732,7 @@ function openRouteInspector(route) {
 // 05: Agent Registry View
 // ----------------------------------------------------------------------------
 
-async function loadAgentsView() {
+async function loadAgentsView(read = viewReader('agents', false)) {
   const searchInput = document.getElementById('agents-search-input');
   const q = searchInput ? searchInput.value.trim() : '';
   const statsEl = document.getElementById('agents-stats');
@@ -2032,12 +1742,12 @@ async function loadAgentsView() {
 
   try {
     const query = q ? `agents?q=${encodeURIComponent(q)}` : 'agents';
-    const resp = await apiFetch(query);
+    const resp = await read(query);
     const data = resp.data || {};
     const items = data.items || [];
 
     if (statsEl) {
-      statsEl.textContent = `${items.length} agents`;
+      statsEl.textContent = `${items.length} ${dashboardText('agents', 'agent')}`;
     }
 
     if (items.length > 0) {
@@ -2047,22 +1757,22 @@ async function loadAgentsView() {
         const tr = document.createElement('tr');
         let skillsCell = '';
         if (agent.skills === null || agent.skills === undefined) {
-          skillsCell = '<span class="badge badge-subtle text-xs">Chưa ghi nhận (Unknown)</span>';
+          skillsCell = `<span class="badge badge-subtle text-xs">${dashboardText('Unknown', 'Chưa ghi nhận (Unknown)')}</span>`;
         } else if (Array.isArray(agent.skills)) {
           const skillsCount = agent.skills.length;
           const skillsPreview = agent.skills.slice(0, 3).map(s => `<span class="agent-skill-tag">${escapeHtml(s)}</span>`).join(' ') + (skillsCount > 3 ? ` <small class="text-muted">+${skillsCount - 3}</small>` : '');
-          skillsCell = `<div class="skills-tags-cloud">${skillsPreview || '<span class="text-muted text-xs">0 kỹ năng</span>'}</div>`;
+          skillsCell = `<div class="skills-tags-cloud">${skillsPreview || `<span class="text-muted text-xs">0 ${dashboardText('skills', 'kỹ năng')}</span>`}</div>`;
         } else {
-          skillsCell = '<span class="badge badge-subtle text-xs">Chưa ghi nhận (Unknown)</span>';
+          skillsCell = `<span class="badge badge-subtle text-xs">${dashboardText('Unknown', 'Chưa ghi nhận (Unknown)')}</span>`;
         }
 
         let mcpCell = '';
         if (agent.mcp === null || agent.mcp === undefined) {
-          mcpCell = '<span class="badge badge-subtle text-xs">Chưa ghi nhận (Unknown)</span>';
+          mcpCell = `<span class="badge badge-subtle text-xs">${dashboardText('Unknown', 'Chưa ghi nhận (Unknown)')}</span>`;
         } else if (Array.isArray(agent.mcp)) {
           mcpCell = `<span class="badge badge-subtle">${agent.mcp.length} tools</span>`;
         } else {
-          mcpCell = '<span class="badge badge-subtle text-xs">Chưa ghi nhận (Unknown)</span>';
+          mcpCell = `<span class="badge badge-subtle text-xs">${dashboardText('Unknown', 'Chưa ghi nhận (Unknown)')}</span>`;
         }
 
         tr.innerHTML = `
@@ -2071,12 +1781,12 @@ async function loadAgentsView() {
             <div class="font-mono text-xs text-muted">${escapeHtml(agent.id)}</div>
           </td>
           <td class="text-sm">${escapeHtml(agent.role || '—')}</td>
-          <td><span class="badge badge-alive font-mono text-xs">${escapeHtml(agent.model || 'Chưa gán')}</span></td>
+          <td><span class="badge badge-alive font-mono text-xs">${escapeHtml(agent.model || dashboardText("Unassigned", 'Chưa gán'))}</span></td>
           <td><code>${escapeHtml(agent.runtime || 'openbot')}</code></td>
           <td>${skillsCell}</td>
           <td>${mcpCell}</td>
           <td>
-            <button class="btn btn-subtle btn-inspect-agent" data-id="${escapeHtml(agent.id)}">Chi tiết</button>
+            <button class="btn btn-subtle btn-inspect-agent" data-id="${escapeHtml(agent.id)}">${dashboardText('Details', 'Chi tiết')}</button>
           </td>
         `;
         tbody.appendChild(tr);
@@ -2096,52 +1806,57 @@ async function loadAgentsView() {
           noticeDesc.textContent = resp.limits.join(' ');
         }
       }
-      tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">Adapter chưa sẵn sàng hoặc không có agent nào phù hợp với bộ lọc.</td></tr>';
+      tbody.innerHTML = `<tr><td colspan="7" class="text-center text-muted">${dashboardText('No matching agents or the directory adapter is unavailable', 'Adapter chưa sẵn sàng hoặc không có agent nào phù hợp với bộ lọc')}.</td></tr>`;
     }
   } catch (err) {
     if (noticeBox) noticeBox.hidden = false;
-    tbody.innerHTML = `<tr><td colspan="7" class="text-center text-danger">Lỗi tải dữ liệu agent: ${escapeHtml(err.message)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="text-center text-danger">${dashboardText('Could not load agents', 'Lỗi tải dữ liệu agent')}: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
 function openAgentInspector(agent) {
   openInspectorDrawer();
+  redrawInspector = () => renderAgentInspector(agent);
+  redrawInspector();
+}
+
+function renderAgentInspector(agent) {
   const eyebrowEl = document.getElementById('inspector-eyebrow');
   const nameEl = document.getElementById('inspector-name');
   const bodyEl = document.getElementById('inspector-body');
 
-  eyebrowEl.textContent = 'CHI TIẾT AGENT';
+  eyebrowEl.textContent = dashboardText("AGENT DETAILS", 'CHI TIẾT AGENT');
   nameEl.textContent = agent.name || agent.id;
 
   let skillsHtml = '';
-  let skillsCountLabel = 'Chưa ghi nhận';
+  let skillsCountLabel = dashboardText("Unknown", 'Chưa ghi nhận');
   if (agent.skills === null || agent.skills === undefined) {
-    skillsHtml = '<span class="badge badge-subtle">Chưa ghi nhận (Unknown)</span>';
+    skillsHtml = `<span class="badge badge-subtle">${dashboardText('Unknown', 'Chưa ghi nhận (Unknown)')}</span>`;
   } else if (Array.isArray(agent.skills)) {
     skillsCountLabel = `${agent.skills.length}`;
     skillsHtml = agent.skills.length > 0 ?
       agent.skills.map(s => `<span class="agent-skill-tag">${escapeHtml(s)}</span>`).join(' ') :
-      '<span class="text-muted text-xs">Không có kỹ năng gán</span>';
+      `<span class="text-muted text-xs">${dashboardText('No assigned skills', 'Không có kỹ năng gán')}</span>`;
   } else {
-    skillsHtml = '<span class="badge badge-subtle">Chưa ghi nhận (Unknown)</span>';
+    skillsHtml = `<span class="badge badge-subtle">${dashboardText('Unknown', 'Chưa ghi nhận (Unknown)')}</span>`;
   }
 
   let mcpHtml = '';
-  let mcpCountLabel = 'Chưa ghi nhận';
+  let mcpCountLabel = dashboardText("Unknown", 'Chưa ghi nhận');
   if (agent.mcp === null || agent.mcp === undefined) {
-    mcpHtml = '<span class="badge badge-subtle">Chưa ghi nhận (Unknown)</span>';
+    mcpHtml = `<span class="badge badge-subtle">${dashboardText('Unknown', 'Chưa ghi nhận (Unknown)')}</span>`;
   } else if (Array.isArray(agent.mcp)) {
     mcpCountLabel = `${agent.mcp.length}`;
     mcpHtml = agent.mcp.length > 0 ?
       agent.mcp.map(m => `<span class="tool-tag">${escapeHtml(m)}</span>`).join(' ') :
-      '<span class="text-muted text-xs">Không có công cụ MCP</span>';
+      `<span class="text-muted text-xs">${dashboardText('No MCP tools', 'Không có công cụ MCP')}</span>`;
   } else {
-    mcpHtml = '<span class="badge badge-subtle">Chưa ghi nhận (Unknown)</span>';
+    mcpHtml = `<span class="badge badge-subtle">${dashboardText('Unknown', 'Chưa ghi nhận (Unknown)')}</span>`;
   }
 
   let permHtml = '';
   if (agent.permissions === null || agent.permissions === undefined) {
-    permHtml = '<span class="badge badge-subtle">Chưa ghi nhận (Unknown)</span>';
+    permHtml = `<span class="badge badge-subtle">${dashboardText('Unknown', 'Chưa ghi nhận (Unknown)')}</span>`;
   } else {
     permHtml = `<code>${escapeHtml(agent.permissions)}</code>`;
   }
@@ -2153,13 +1868,13 @@ function openAgentInspector(agent) {
     </div>
 
     <div class="inspector-prop-row">
-      <span class="inspector-prop-label">Vai trò &amp; Nhiệm vụ (Role)</span>
+      <span class="inspector-prop-label">${dashboardText('Role &amp; responsibilities', 'Vai trò &amp; Nhiệm vụ (Role)')}</span>
       <div class="inspector-prop-val text-sm">${escapeHtml(agent.role || '—')}</div>
     </div>
 
     <div class="inspector-prop-row">
-      <span class="inspector-prop-label">Mô hình LLM (Model)</span>
-      <div class="inspector-prop-val"><span class="badge badge-alive">${escapeHtml(agent.model || 'Chưa gán')}</span></div>
+      <span class="inspector-prop-label">${dashboardText('Language model', 'Mô hình LLM (Model)')}</span>
+      <div class="inspector-prop-val"><span class="badge badge-alive">${escapeHtml(agent.model || dashboardText("Unassigned", 'Chưa gán'))}</span></div>
     </div>
 
     <div class="inspector-prop-row">
@@ -2168,23 +1883,23 @@ function openAgentInspector(agent) {
     </div>
 
     <div class="inspector-prop-row">
-      <span class="inspector-prop-label">Trạng thái cấu hình</span>
+      <span class="inspector-prop-label">${dashboardText('Configuration status', 'Trạng thái cấu hình')}</span>
       <div class="inspector-prop-val"><span class="badge badge-subtle">${escapeHtml(agent.status || 'configured')}</span></div>
     </div>
 
     <div class="inspector-prop-row">
-      <span class="inspector-prop-label">Kỹ năng được gán (${skillsCountLabel})</span>
+      <span class="inspector-prop-label">${dashboardText('Assigned skills', 'Kỹ năng được gán')} (${skillsCountLabel})</span>
       <div class="skills-tags-cloud mt-xs">${skillsHtml}</div>
     </div>
 
     <div class="inspector-prop-row">
-      <span class="inspector-prop-label">Công cụ MCP khả dụng (${mcpCountLabel})</span>
+      <span class="inspector-prop-label">${dashboardText('Available MCP tools', 'Công cụ MCP khả dụng')} (${mcpCountLabel})</span>
       <div class="mcp-tools-list mt-xs">${mcpHtml}</div>
     </div>
 
     <div class="inspector-prop-row">
-      <span class="inspector-prop-label">Quyền hạn &amp; Nguồn (Permissions)</span>
-      <div class="inspector-prop-val text-xs text-muted">${permHtml} (Nguồn: ${escapeHtml(agent.source || 'projection')})</div>
+      <span class="inspector-prop-label">${dashboardText('Permissions &amp; source', 'Quyền hạn &amp; Nguồn (Permissions)')}</span>
+      <div class="inspector-prop-val text-xs text-muted">${permHtml}${dashboardText(" (Source: ", " (Nguồn: ")}${escapeHtml(agent.source || 'projection')})</div>
     </div>
   `;
 }
@@ -2193,22 +1908,24 @@ function openAgentInspector(agent) {
 // 06: MCP & Integration Manager View
 // ----------------------------------------------------------------------------
 
-async function loadIntegrationsView(probeTarget = null) {
+let lastIntegrationProbe = null;
+async function loadIntegrationsView(probeTarget = null, read = viewReader('integrations', false)) {
   const query = probeTarget ? `integrations?probe=${encodeURIComponent(probeTarget)}` : 'integrations';
-  const resp = await apiFetch(query);
+  lastIntegrationProbe = probeTarget;
+  const resp = await read(query);
   const data = resp.data || {};
   const items = data.items || [];
 
   const statsEl = document.getElementById('mcp-stats');
   if (statsEl) {
-    statsEl.textContent = `Tổng: ${items.length} MCP servers (Đã cấu hình: ${data.configured_count || 0})`;
+    statsEl.textContent = `${dashboardText("Total: ", "Tổng: ")}${items.length}${dashboardText(" MCP servers (configured: ", " MCP servers (Đã cấu hình: ")}${data.configured_count || 0})`;
   }
 
   const grid = document.getElementById('mcp-servers-grid');
   grid.innerHTML = '';
 
   if (items.length === 0) {
-    grid.innerHTML = '<div class="text-center text-muted col-span-full">Không có máy chủ MCP nào được ghi nhận.</div>';
+    grid.innerHTML = `<div class="text-center text-muted col-span-full">${dashboardText('No MCP servers observed', 'Không có máy chủ MCP nào được ghi nhận')}.</div>`;
     return;
   }
 
@@ -2221,7 +1938,7 @@ async function loadIntegrationsView(probeTarget = null) {
       toolsHtml += `<span class="tool-tag">${escapeHtml(t.name)}</span>`;
     });
     if (tools.length > 15) {
-      toolsHtml += `<span class="tool-tag">+${tools.length - 15} công cụ khác</span>`;
+      toolsHtml += `<span class="tool-tag">+${tools.length - 15}${dashboardText(" more tools</span>", " công cụ khác</span>")}`;
     }
 
     let healthBadge = '';
@@ -2231,16 +1948,16 @@ async function loadIntegrationsView(probeTarget = null) {
         const gpuInfo = srv.health.fields?.warmup?.gpu_resident ? ' · dGPU VRAM' : '';
         healthBadge = `<span class="badge health-badge-observed">Health OK (${skillsCount}${gpuInfo})</span>`;
       } else if (srv.health.status === 'degraded') {
-        healthBadge = `<span class="badge badge-warning">Health: Suy giảm (503)</span>`;
+        healthBadge = `<span class="badge badge-warning">Health: ${dashboardText('Degraded', 'Suy giảm')} (503)</span>`;
       } else {
         healthBadge = `<span class="badge health-badge-unavailable">Health: ${escapeHtml(srv.health.status)}</span>`;
       }
     } else {
-      healthBadge = `<span class="badge badge-subtle">Chưa probe health</span>`;
+      healthBadge = `<span class="badge badge-subtle">${dashboardText('Health not checked', 'Chưa probe health')}</span>`;
     }
 
-    const enabledBadge = srv.enabled === true ? '<span class="badge badge-alive">Bật</span>' :
-      (srv.enabled === false ? '<span class="badge badge-muted">Tắt</span>' : '<span class="badge badge-subtle">Catalog</span>');
+    const enabledBadge = srv.enabled === true ? `<span class="badge badge-alive">${dashboardText('Enabled', 'Bật')}</span>` :
+      (srv.enabled === false ? `<span class="badge badge-muted">${dashboardText('Disabled', 'Tắt')}</span>` : '<span class="badge badge-subtle">Catalog</span>');
 
     card.innerHTML = `
       <div class="mcp-card-header">
@@ -2250,9 +1967,9 @@ async function loadIntegrationsView(probeTarget = null) {
           ${healthBadge}
         </div>
       </div>
-      <div class="text-xs text-muted mb-xs">Transport: <code>${escapeHtml(srv.transport || 'stdio/http')}</code> · Trạng thái: <strong>${escapeHtml(srv.status || 'catalogued')}</strong></div>
-      <div class="text-xs text-muted">Tổng số công cụ khai báo: <strong>${tools.length}</strong></div>
-      <div class="mcp-tools-list mt-xs">${toolsHtml || '<span class="text-muted text-xs">Không có công cụ cụ thể</span>'}</div>
+      <div class="text-xs text-muted mb-xs">Transport: <code>${escapeHtml(srv.transport || 'stdio/http')}</code> · ${dashboardText('Status', 'Trạng thái')}: <strong>${escapeHtml(srv.status || 'catalogued')}</strong></div>
+      <div class="text-xs text-muted">${dashboardText('Declared tools', 'Tổng số công cụ khai báo')}: <strong>${tools.length}</strong></div>
+      <div class="mcp-tools-list mt-xs">${toolsHtml || `<span class="text-muted text-xs">${dashboardText('No tools listed', 'Không có công cụ cụ thể')}</span>`}</div>
     `;
     grid.appendChild(card);
   });
@@ -2262,7 +1979,7 @@ async function loadIntegrationsView(probeTarget = null) {
 // 07: Prompt & Knowledge Library View
 // ----------------------------------------------------------------------------
 
-async function loadLibraryView() {
+async function loadLibraryView(read = viewReader('library', false)) {
   const kindSelect = document.getElementById('library-kind-select');
   const kind = kindSelect ? kindSelect.value : 'prompt';
   state.library.kind = kind;
@@ -2273,13 +1990,13 @@ async function loadLibraryView() {
   if (q) queryUrl += `&q=${encodeURIComponent(q)}`;
   if (domain) queryUrl += `&domain=${encodeURIComponent(domain)}`;
 
-  const resp = await apiFetch(queryUrl);
+  const resp = await read(queryUrl);
   const data = resp.data || {};
   state.library.total = data.total || 0;
   state.library.items = data.items || [];
 
-  document.getElementById('library-search-mode').textContent = 'Chế độ tìm kiếm: ' + (data.search_mode || 'Đọc catalog');
-  document.getElementById('library-total-count').textContent = `Tổng: ${state.library.total.toLocaleString('vi-VN')} ${kind === 'document' ? 'tài liệu' : 'prompts'}`;
+  document.getElementById('library-search-mode').textContent = dashboardText("Search mode: ", 'Chế độ tìm kiếm: ') + (data.search_mode || dashboardText("Catalog search", 'Đọc catalog'));
+  document.getElementById('library-total-count').textContent = `${dashboardText("Total: ", "Tổng: ")}${state.library.total.toLocaleString(dashboardLocale())} ${kind === 'document' ? dashboardText("documents", 'tài liệu') : 'prompts'}`;
 
   // Populate domains if empty
   const domainSelect = document.getElementById('library-domain-select');
@@ -2298,11 +2015,11 @@ async function loadLibraryView() {
   const tbody = document.getElementById('library-table-body');
   tbody.innerHTML = '';
   if (state.library.items.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted">Không tìm thấy ${kind === 'document' ? 'tài liệu' : 'mẫu prompt'} nào phù hợp.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted">${dashboardText('No matching', 'Không tìm thấy')} ${kind === 'document' ? dashboardText("documents", 'tài liệu') : dashboardText("prompts", 'mẫu prompt')}${dashboardText('', ' nào phù hợp')}.</td></tr>`;
   } else {
     state.library.items.forEach(item => {
       const tr = document.createElement('tr');
-      const activeBadge = item.active ? '<span class="badge badge-alive">Hoạt động</span>' : '<span class="badge badge-muted">Tắt</span>';
+      const activeBadge = item.active ? `<span class="badge badge-alive">${dashboardText('Active', 'Hoạt động')}</span>` : `<span class="badge badge-muted">${dashboardText('Disabled', 'Tắt')}</span>`;
       const versionShort = item.version ? item.version.slice(0, 12) + '…' : '—';
 
       const isEditable = item.editable !== false && item.kind !== 'document' && kind !== 'document';
@@ -2316,8 +2033,8 @@ async function loadLibraryView() {
         <td>${activeBadge}</td>
         <td>
           <div class="pagination-controls">
-            <button class="btn btn-subtle btn-inspect-library" data-id="${escapeHtml(item.id)}" data-kind="${escapeHtml(item.kind || kind)}">Chi tiết</button>
-            ${isEditable ? `<button class="btn btn-secondary btn-revise-library" data-id="${escapeHtml(item.id)}" data-kind="${escapeHtml(item.kind || kind)}">Sửa đổi</button>` : '<span class="badge badge-subtle">Chỉ đọc</span>'}
+            <button class="btn btn-subtle btn-inspect-library" data-id="${escapeHtml(item.id)}" data-kind="${escapeHtml(item.kind || kind)}">${dashboardText('Details', 'Chi tiết')}</button>
+            ${isEditable ? `<button class="btn btn-secondary btn-revise-library" data-id="${escapeHtml(item.id)}" data-kind="${escapeHtml(item.kind || kind)}">${dashboardText('Revise', 'Sửa đổi')}</button>` : `<span class="badge badge-subtle">${dashboardText('Read-only', 'Chỉ đọc')}</span>`}
           </div>
         </td>
       `;
@@ -2342,8 +2059,8 @@ async function loadLibraryView() {
 // 08: Observability & Telemetry View
 // ----------------------------------------------------------------------------
 
-async function loadTelemetryView() {
-  const resp = await apiFetch('telemetry');
+async function loadTelemetryView(read = viewReader('telemetry', false)) {
+  const resp = await read('telemetry');
   const data = resp.data || {};
   state.telemetry.items = data.items || [];
   renderTelemetryTable();
@@ -2361,7 +2078,7 @@ function renderTelemetryTable() {
   });
 
   if (filtered.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Không tìm thấy sự kiện telemetry phù hợp.</td></tr>';
+    tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted">${dashboardText('No matching telemetry events', 'Không tìm thấy sự kiện telemetry phù hợp')}.</td></tr>`;
     return;
   }
 
@@ -2451,13 +2168,13 @@ function bindQualityFilterEvents() {
   }
 }
 
-async function loadQualityView() {
+async function loadQualityView(read = viewReader('quality', false), cached = false) {
   bindQualityFilterEvents();
-  await loadCatalogQuality();
-  const resp = await apiFetch(getQualityFilterQuery());
+  await loadCatalogQuality(viewReader('catalog-quality', cached));
+  const resp = await read(getQualityFilterQuery());
   let duplicateEvidence = {};
   try {
-    const groups = await apiFetch('catalog-quality?view=groups&limit=100');
+    const groups = await read('catalog-quality?view=groups&limit=100');
     for (const group of groups.data?.items || []) {
       const hash = group.members?.[0]?.body_sha256;
       if (hash) duplicateEvidence[hash] = group.distinct_bundle_count;
@@ -2472,14 +2189,14 @@ async function loadQualityView() {
     const totalGroups = typeof data.total === 'number' ? data.total : items.length;
     const isTruncated = data.truncated === true;
     const totalDups = items.reduce((acc, x) => acc + (x.count || 0), 0);
-    countBadge.textContent = `${totalGroups} nhóm trùng${isTruncated ? ' (hiển thị 100)' : ''} (${totalDups} tài nguyên)`;
+    countBadge.textContent = `${totalGroups}${dashboardText(" duplicate groups", " nhóm trùng")}${isTruncated ? dashboardText(" (showing 100)", ' (hiển thị 100)') : ''} (${totalDups}${dashboardText(" resources)", " tài nguyên)")}`;
   }
 
   const tbody = document.getElementById('duplicates-table-body');
   tbody.innerHTML = '';
 
   if (items.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">Không phát hiện nhóm kỹ năng trùng lặp exact body hash (không rỗng).</td></tr>';
+    tbody.innerHTML = `<tr><td colspan="4" class="text-center text-muted">${dashboardText('No skills share the same non-empty body hash', 'Không phát hiện nhóm kỹ năng trùng lặp exact body hash (không rỗng)')}.</td></tr>`;
   } else {
     items.forEach(dup => {
       const tr = document.createElement('tr');
@@ -2488,14 +2205,13 @@ async function loadQualityView() {
         const mId = typeof m === 'object' ? m.id : m;
         const mKind = (typeof m === 'object' && m.kind) ? m.kind : 'skill';
         const mName = (typeof m === 'object' && m.name) ? m.name : mId;
-        return `<button type="button" class="btn btn-xs btn-subtle resource-inspect-link font-mono" data-id="${escapeHtml(mId)}" data-kind="${escapeHtml(mKind)}" title="Xem chi tiết ${escapeHtml(mKind)} ${escapeHtml(mName)}">${escapeHtml(mName)}</button>`;
+        return `<button type="button" class="btn btn-xs btn-subtle resource-inspect-link font-mono" data-id="${escapeHtml(mId)}" data-kind="${escapeHtml(mKind)}${dashboardText("\" title=\"View details for ", "\" title=\"Xem chi tiết ")}${escapeHtml(mKind)} ${escapeHtml(mName)}">${escapeHtml(mName)}</button>`;
       }).join(' ');
 
       tr.innerHTML = `
         <td class="font-mono text-xs" title="${escapeHtml(dup.sha256)}">${escapeHtml(truncateStr(dup.sha256, 16))}</td>
-        <td><span class="badge badge-warning">${escapeHtml(dup.count)} lần</span></td>
-        <td>Trùng phần thân${duplicateEvidence[dup.sha256] != null ? `<br><small>${escapeHtml(duplicateEvidence[dup.sha256])} bộ tệp khác nhau</small>` : ''}</td>
-        <td><div class="d-flex flex-wrap gap-xs align-center">${resBadges || '<span class="text-muted text-xs">Không có danh sách</span>'}</div></td>
+        <td><span class="badge badge-warning">${escapeHtml(dup.count)}${dashboardText(" matches</span></td>\n        <td>Matching body", " lần</span></td>\n        <td>Trùng phần thân")}${duplicateEvidence[dup.sha256] != null ? `<br><small>${escapeHtml(duplicateEvidence[dup.sha256])}${dashboardText(" distinct bundles</small>", " bộ tệp khác nhau</small>")}` : ''}</td>
+        <td><div class="d-flex flex-wrap gap-xs align-center">${resBadges || `<span class="text-muted text-xs">${dashboardText('No members listed', 'Không có danh sách')}</span>`}</div></td>
       `;
       tbody.appendChild(tr);
     });
@@ -2523,14 +2239,14 @@ async function loadQualityView() {
     const emptyBadge = document.getElementById('empty-bodies-badge');
     if (emptyBadge) {
       const parts = [];
-      if (emptyBodies.count > 0) parts.push(`${emptyBodies.count} thân rỗng`);
-      if (emptyBodies.missing_or_null_hash_count > 0) parts.push(`${emptyBodies.missing_or_null_hash_count} thiếu hash`);
-      emptyBadge.textContent = parts.join(' · ') || 'Chưa trích xuất';
+      if (emptyBodies.count > 0) parts.push(`${emptyBodies.count}${dashboardText(" empty bodies", " thân rỗng")}`);
+      if (emptyBodies.missing_or_null_hash_count > 0) parts.push(`${emptyBodies.missing_or_null_hash_count}${dashboardText(" missing hashes", " thiếu hash")}`);
+      emptyBadge.textContent = parts.join(' · ') || dashboardText("Not extracted", 'Chưa trích xuất');
     }
 
     const emptyDesc = document.getElementById('empty-bodies-desc');
     if (emptyDesc) {
-      emptyDesc.textContent = emptyBodies.description || 'Tài nguyên chưa trích xuất phần thân (catalog body unextracted).';
+      emptyDesc.textContent = emptyBodies.description || dashboardText("Resource bodies have not been extracted into the catalog.", 'Tài nguyên chưa trích xuất phần thân (catalog body unextracted).');
     }
 
     const samplesList = emptyBodies.samples || (emptyBodies.sample_resources || []).map(rId => ({ id: rId, name: rId, kind: 'skill' }));
@@ -2541,7 +2257,7 @@ async function loadQualityView() {
         const sKind = (typeof s === 'object' && s.kind) ? s.kind : 'skill';
         const sName = (typeof s === 'object' && s.name) ? s.name : sId;
         const qReason = (typeof s === 'object' && s.quarantine_reason) ? ` (${s.quarantine_reason})` : '';
-        return `<button type="button" class="btn btn-xs btn-subtle resource-inspect-link font-mono" data-id="${escapeHtml(sId)}" data-kind="${escapeHtml(sKind)}" title="Xem chi tiết ${escapeHtml(sKind)} ${escapeHtml(sName)}${escapeHtml(qReason)}">${escapeHtml(sName)}</button>`;
+        return `<button type="button" class="btn btn-xs btn-subtle resource-inspect-link font-mono" data-id="${escapeHtml(sId)}" data-kind="${escapeHtml(sKind)}${dashboardText("\" title=\"View details for ", "\" title=\"Xem chi tiết ")}${escapeHtml(sKind)} ${escapeHtml(sName)}${escapeHtml(qReason)}">${escapeHtml(sName)}</button>`;
       }).join(' ');
 
       samplesContainer.querySelectorAll('.resource-inspect-link').forEach(btn => {
@@ -2576,9 +2292,9 @@ async function loadQualityView() {
     const skillsScanned = typeof cov.skills_scanned === 'number' ? cov.skills_scanned : (sec.total || 0);
     const promptsScanned = typeof cov.prompts_scanned === 'number' ? cov.prompts_scanned : 0;
 
-    secBadge.textContent = `Đã quét ${skillsScanned.toLocaleString('vi-VN')} skill + ${promptsScanned.toLocaleString('vi-VN')} prompt · ${secReviewCount} cần rà soát · ${dataQualityCount} thân rỗng`;
+    secBadge.textContent = `${dashboardText("Scanned ", "Đã quét ")}${skillsScanned.toLocaleString(dashboardLocale())} skill + ${promptsScanned.toLocaleString(dashboardLocale())} prompt · ${secReviewCount}${dashboardText(" require review · ", " cần rà soát · ")}${dataQualityCount}${dashboardText(" empty bodies", " thân rỗng")}`;
     secBadge.className = secReviewCount > 0 ? 'badge badge-warning' : 'badge badge-subtle';
-    if (secScope) secScope.textContent = 'Quy tắc tĩnh trên nội dung đã lập chỉ mục; chưa kiểm tra frontmatter. Thân rỗng được tách riêng. Kết quả này không chứng nhận an toàn hay xác nhận thông tin nhạy cảm còn hiệu lực.';
+    if (secScope) secScope.textContent = dashboardText("Static rules scan indexed content and exclude frontmatter. Empty bodies are tracked separately. Results do not certify safety or confirm that sensitive information is still valid.", 'Quy tắc tĩnh trên nội dung đã lập chỉ mục; chưa kiểm tra frontmatter. Thân rỗng được tách riêng. Kết quả này không chứng nhận an toàn hay xác nhận thông tin nhạy cảm còn hiệu lực.');
     renderOriginalSources(sec.original_sources);
     renderCuration(sec.catalog_curation);
 
@@ -2589,8 +2305,8 @@ async function loadQualityView() {
     const rangeEl = document.getElementById('security-scan-range');
     if (rangeEl) {
       rangeEl.textContent = (filteredTotal === 0 || returned === 0)
-        ? `Hiển thị 0 / ${filteredTotal} kết quả`
-        : `Hiển thị ${offset + 1}–${offset + returned} / ${filteredTotal} kết quả${cov.truncated ? ' (còn trang sau)' : ''}`;
+        ? `${dashboardText("Showing 0 / ", "Hiển thị 0 / ")}${filteredTotal}${dashboardText(" results", " kết quả")}`
+        : `${dashboardText("Showing ", "Hiển thị ")}${offset + 1}–${offset + returned} / ${filteredTotal}${dashboardText(" results", " kết quả")}${cov.truncated ? dashboardText(" (more pages)", ' (còn trang sau)') : ''}`;
     }
     const prevBtn = document.getElementById('sec-page-prev');
     if (prevBtn) prevBtn.disabled = offset <= 0;
@@ -2599,10 +2315,10 @@ async function loadQualityView() {
 
     if (secSummary) {
       secSummary.innerHTML = [
-        `<span class="badge badge-warning">Cần rà soát: ${escapeHtml(secReviewCount)}</span>`,
-        `<span class="badge badge-subtle">Thân rỗng: ${escapeHtml(dataQualityCount)}</span>`,
-        `<span class="badge badge-subtle">Ví dụ theo quy tắc / rà soát: ${escapeHtml(exampleCount)}</span>`,
-        `<span class="badge badge-subtle">Không khớp quy tắc: ${escapeHtml(cleanCount)}</span>`,
+        `<span class="badge badge-warning">${dashboardText('Needs review', 'Cần rà soát')}: ${escapeHtml(secReviewCount)}</span>`,
+        `<span class="badge badge-subtle">${dashboardText('Empty bodies', 'Thân rỗng')}: ${escapeHtml(dataQualityCount)}</span>`,
+        `<span class="badge badge-subtle">${dashboardText('Examples identified by rules or review', 'Ví dụ theo quy tắc / rà soát')}: ${escapeHtml(exampleCount)}</span>`,
+        `<span class="badge badge-subtle">${dashboardText('No rule match', 'Không khớp quy tắc')}: ${escapeHtml(cleanCount)}</span>`,
         `<span class="badge badge-warning">EXEC/INJ: ${escapeHtml(byRule.EXECUTION_OR_INJECTION_REVIEW || 0)}</span>`,
         `<span class="badge badge-subtle">REDACTED_CRED: ${escapeHtml(byRule.REDACTED_CREDENTIAL_REVIEW || 0)}</span>`,
       ].join(' ');
@@ -2630,11 +2346,11 @@ async function loadQualityView() {
         const disp = f.disposition || f.status || 'review';
         let statusBadge;
         if (f.bucket === 'data_quality' || (f.checks && f.checks.includes('EMPTY_BODY'))) {
-          statusBadge = '<span class="badge badge-warning" title="Thân rỗng: DATA_QUALITY, không thể chứng nhận an toàn (no false PASS)">DATA_QUALITY · unscannable_empty_body</span>';
+          statusBadge = `<span class="badge badge-warning" title="${dashboardText('Empty body: DATA_QUALITY. Safety cannot be verified.', 'Thân rỗng: DATA_QUALITY, không thể chứng nhận an toàn (no false PASS)')}">DATA_QUALITY · unscannable_empty_body</span>`;
         } else if (disp === 'confirmed_finding') {
           statusBadge = '<span class="badge badge-warning">confirmed_finding</span>';
         } else if (disp === 'confirmed_example') {
-          statusBadge = f.automatic_triage?.example_only ? '<span class="badge badge-subtle">Ví dụ theo quy tắc tự động</span>' : '<span class="badge badge-subtle">Ví dụ đã đánh dấu thủ công</span>';
+          statusBadge = f.automatic_triage?.example_only ? `<span class="badge badge-subtle">${dashboardText('Example identified by automated rules', 'Ví dụ theo quy tắc tự động')}</span>` : `<span class="badge badge-subtle">${dashboardText('Example identified by manual review', 'Ví dụ đã đánh dấu thủ công')}</span>`;
         } else if (f.status === 'review' || disp === 'needs_source_review') {
           statusBadge = `<span class="badge badge-warning">${escapeHtml(disp)}${f.stale_disposition ? ' · stale-reopened' : ''}</span>`;
         } else {
@@ -2642,7 +2358,7 @@ async function loadQualityView() {
         }
 
         const remText = f.remediation && f.remediation.suggested_action ?
-          `<div class="text-xs text-muted mt-xs">${f.automatic_triage?.example_only ? 'Quy tắc nhận diện ví dụ; chưa phải chứng nhận an toàn.' : 'Đối chiếu nguồn gốc và bối cảnh trước khi kết luận.'}</div>` : '';
+          `<div class="text-xs text-muted mt-xs">${f.automatic_triage?.example_only ? dashboardText("Example identified by rule. Safety is unverified.", 'Quy tắc nhận diện ví dụ; chưa phải chứng nhận an toàn.') : dashboardText("Review the original source and context before deciding.", 'Đối chiếu nguồn gốc và bối cảnh trước khi kết luận.')}</div>` : '';
 
         tr.innerHTML = `
           <td><button type="button" class="btn btn-xs btn-subtle resource-inspect-link font-mono" data-id="${escapeHtml(f.id)}" data-kind="${escapeHtml(rKind)}">${escapeHtml(f.id)}</button></td>
@@ -2661,10 +2377,10 @@ async function loadQualityView() {
         });
       });
     } else {
-      secTbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">Không có tài nguyên nào khớp bộ lọc hiện tại.</td></tr>';
+      secTbody.innerHTML = `<tr><td colspan="4" class="text-center text-muted">${dashboardText('No resources match the current filters', 'Không có tài nguyên nào khớp bộ lọc hiện tại')}.</td></tr>`;
     }
   } else {
-    secBadge.textContent = 'Quy tắc tĩnh trên catalog';
+    secBadge.textContent = dashboardText("Static catalog rules", 'Quy tắc tĩnh trên catalog');
     if (secSummary) secSummary.innerHTML = '';
     secWrap.hidden = true;
   }
@@ -2675,16 +2391,16 @@ async function loadQualityView() {
   const bmDisplay = document.getElementById('benchmark-metrics-display');
 
   if (bm) {
-    const verdictText = bm.verdict ? String(bm.verdict) : 'Chưa ghi nhận (Unknown)';
-    bmBadge.textContent = `Hồi quy lịch sử: ${verdictText}`;
+    const verdictText = bm.verdict ? String(bm.verdict) : dashboardText("Unknown", 'Chưa ghi nhận (Unknown)');
+    bmBadge.textContent = `${dashboardText("Historical regression: ", "Hồi quy lịch sử: ")}${verdictText}`;
     bmBadge.className = bm.verdict === 'PASS' ? 'badge badge-alive' : (bm.verdict ? 'badge badge-warning' : 'badge badge-subtle');
     bmDisplay.hidden = false;
 
-    const selRecall = typeof bm.selection_recall === 'number' ? `${(bm.selection_recall * 100).toFixed(1)}%` : 'Chưa ghi nhận (Unknown)';
-    const loadRecall = typeof bm.loaded_recall === 'number' ? `${(bm.loaded_recall * 100).toFixed(1)}%` : 'Chưa ghi nhận (Unknown)';
-    const candRecall = typeof bm.candidate_recall === 'number' ? `${(bm.candidate_recall * 100).toFixed(1)}%` : 'Chưa ghi nhận (Unknown)';
+    const selRecall = typeof bm.selection_recall === 'number' ? `${(bm.selection_recall * 100).toFixed(1)}%` : dashboardText("Unknown", 'Chưa ghi nhận (Unknown)');
+    const loadRecall = typeof bm.loaded_recall === 'number' ? `${(bm.loaded_recall * 100).toFixed(1)}%` : dashboardText("Unknown", 'Chưa ghi nhận (Unknown)');
+    const candRecall = typeof bm.candidate_recall === 'number' ? `${(bm.candidate_recall * 100).toFixed(1)}%` : dashboardText("Unknown", 'Chưa ghi nhận (Unknown)');
 
-    let p95Text = 'Chưa ghi nhận (Unknown)';
+    let p95Text = dashboardText("Unknown", 'Chưa ghi nhận (Unknown)');
     if (typeof bm.timing_ms?.p95_frozen === 'number') {
       p95Text = `${(bm.timing_ms.p95_frozen / 1000).toFixed(2)}s`;
     } else if (typeof bm.timing_ms?.p95 === 'number') {
@@ -2695,41 +2411,29 @@ async function loadQualityView() {
       p95Text = `${(bm.timing_ms.nearest_rank_p95 / 1000).toFixed(2)}s`;
     }
 
-    const casesText = (bm.cases !== undefined && bm.cases !== null) ? `${bm.cases} ca kiểm thử` : 'Chưa ghi nhận (Unknown)';
+    const casesText = (bm.cases !== undefined && bm.cases !== null) ? `${bm.cases}${dashboardText(" test cases", " ca kiểm thử")}` : dashboardText("Unknown", 'Chưa ghi nhận (Unknown)');
 
     bmDisplay.innerHTML = `
       <div class="benchmark-stat-card">
-        <div class="benchmark-stat-label">Kết luận Hồi quy Lịch sử</div>
+        <div class="benchmark-stat-label">${dashboardText('Historical regression result', 'Kết luận Hồi quy Lịch sử')}</div>
         <div class="benchmark-stat-val ${bm.verdict === 'PASS' ? 'text-success' : 'text-muted'}">${escapeHtml(verdictText)}</div>
-        <small class="text-muted text-xs">Mẫu: ${escapeHtml(casesText)} (Đối soát AUDIT cũ, không phải SLA thời gian thực)</small>
-      </div>
-
-      <div class="benchmark-stat-card">
-        <div class="benchmark-stat-label">Selection Recall (Lịch sử)</div>
+        <small class="text-muted text-xs">${dashboardText('Sample', 'Mẫu')}: ${escapeHtml(casesText)} (${dashboardText('historical audit)</small>\n      </div>\n\n      <div class="benchmark-stat-card">\n        <div class="benchmark-stat-label">Historical selection recall', 'Đối soát AUDIT cũ, không phải SLA thời gian thực)</small>\n      </div>\n\n      <div class="benchmark-stat-card">\n        <div class="benchmark-stat-label">Selection Recall (Lịch sử)')}</div>
         <div class="benchmark-stat-val text-success">${escapeHtml(selRecall)}</div>
-        <small class="text-muted text-xs">Tỷ lệ chọn đúng trong bộ dữ liệu đối soát</small>
-      </div>
-
-      <div class="benchmark-stat-card">
-        <div class="benchmark-stat-label">Loaded Recall (Lịch sử)</div>
+        <small class="text-muted text-xs">${dashboardText('Correct selection rate on the evaluation dataset</small>\n      </div>\n\n      <div class="benchmark-stat-card">\n        <div class="benchmark-stat-label">Historical load recall', 'Tỷ lệ chọn đúng trong bộ dữ liệu đối soát</small>\n      </div>\n\n      <div class="benchmark-stat-card">\n        <div class="benchmark-stat-label">Loaded Recall (Lịch sử)')}</div>
         <div class="benchmark-stat-val text-success">${escapeHtml(loadRecall)}</div>
-        <small class="text-muted text-xs">Tỷ lệ nạp đúng trong bộ dữ liệu đối soát</small>
+        <small class="text-muted text-xs">${dashboardText('Correct load rate on the evaluation datase', 'Tỷ lệ nạp đúng trong bộ dữ liệu đối soá')}t</small>
       </div>
 
       <div class="benchmark-stat-card">
         <div class="benchmark-stat-label">Candidate Recall</div>
         <div class="benchmark-stat-val text-muted">${escapeHtml(candRecall)}</div>
-        <small class="text-muted text-xs">Chưa thiết lập cam kết đo lường</small>
-      </div>
-
-      <div class="benchmark-stat-card">
-        <div class="benchmark-stat-label">Độ trễ p95 (Lịch sử)</div>
+        <small class="text-muted text-xs">${dashboardText('No measurement target set</small>\n      </div>\n\n      <div class="benchmark-stat-card">\n        <div class="benchmark-stat-label">Historical p95 latency', 'Chưa thiết lập cam kết đo lường</small>\n      </div>\n\n      <div class="benchmark-stat-card">\n        <div class="benchmark-stat-label">Độ trễ p95 (Lịch sử)')}</div>
         <div class="benchmark-stat-val font-mono">${escapeHtml(p95Text)}</div>
-        <small class="text-muted text-xs">Chưa thiết lập SLA thời gian thực</small>
+        <small class="text-muted text-xs">${dashboardText('No live service-level objective set', 'Chưa thiết lập SLA thời gian thực')}</small>
       </div>
     `;
   } else {
-    bmBadge.textContent = 'Runner benchmark offline';
+    bmBadge.textContent = dashboardText('Benchmark unavailable', 'Chưa có kết quả kiểm chuẩn');
     bmBadge.className = 'badge badge-subtle';
     bmDisplay.hidden = true;
   }
@@ -2737,10 +2441,10 @@ async function loadQualityView() {
 
 function formatReviewTime(value) {
   const date = new Date(value);
-  return value && !Number.isNaN(date.valueOf()) ? new Intl.DateTimeFormat('vi-VN',{dateStyle:'short',timeStyle:'short',timeZone:'Asia/Ho_Chi_Minh'}).format(date) : 'chưa rõ thời điểm';
+  return value && !Number.isNaN(date.valueOf()) ? new Intl.DateTimeFormat(dashboardLocale(),{dateStyle:'short',timeStyle:'short',timeZone:'Asia/Ho_Chi_Minh'}).format(date) : dashboardText("time unknown", 'chưa rõ thời điểm');
 }
 let catalogSearchTimer;
-async function loadCatalogQuality() {
+async function loadCatalogQuality(read = viewReader('catalog-quality', false)) {
   const source = document.getElementById('catalog-quality-source');
   const rows = document.getElementById('catalog-quality-rows');
   const params = new URLSearchParams({limit:'8', offset:String(catalogQualityOffset)});
@@ -2749,31 +2453,31 @@ async function loadCatalogQuality() {
   if (filter) params.set('disposition', filter);
   if (search) params.set('q', search);
   try {
-    const response = await apiFetch(`catalog-quality?${params}`);
-    if (!response.data || !response.data.summary) throw new Error('Không có biên nhận hợp lệ');
+    const response = await read(`catalog-quality?${params}`);
+    if (!response.data || !response.data.summary) throw new Error(dashboardText("Valid receipt unavailable", 'Không có biên nhận hợp lệ'));
     const data = response.data, summary = data.summary, counts = summary.dispositions || {};
-    source.textContent = `Đối chiếu ${formatReviewTime(data.observed_at)} · catalog ${String(data.index_sha256 || '').slice(0,12)}`;
+    source.textContent = `${dashboardText("Checked ", "Đối chiếu ")}${formatReviewTime(data.observed_at)} · catalog ${String(data.index_sha256 || '').slice(0,12)}`;
     document.getElementById('catalog-quality-summary').innerHTML = [
-      ['Cách ly', summary.quarantined, 'Danh tính trong catalog'],
-      ['Sẵn sàng rà soát', counts.review_required || 0, 'Chưa được kích hoạt'],
-      ['Nguồn chưa hợp lệ', counts.source_invalid || 0, 'Cần sửa tại nguồn'],
-      ['Thân chưa trích xuất', summary.index_body_empty, 'Không coi là nhóm trùng']
-    ].map(([label,value,detail]) => `<article class="quality-stat"><span>${escapeHtml(label)}</span><strong>${escapeHtml(typeof value === 'number' ? value.toLocaleString('vi-VN') : (value ?? '—'))}</strong><small>${escapeHtml(detail)}</small></article>`).join('');
+      [dashboardText("Quarantine", 'Cách ly'), summary.quarantined, dashboardText("Catalog identities", 'Danh tính trong catalog')],
+      [dashboardText("Ready for review", 'Sẵn sàng rà soát'), counts.review_required || 0, dashboardText("Pending activation", 'Chưa được kích hoạt')],
+      [dashboardText("Invalid source", 'Nguồn chưa hợp lệ'), counts.source_invalid || 0, dashboardText("Requires a fix at source", 'Cần sửa tại nguồn')],
+      [dashboardText("Body not extracted", 'Thân chưa trích xuất'), summary.index_body_empty, dashboardText("Excluded from duplicate groups", 'Không coi là nhóm trùng')]
+    ].map(([label,value,detail]) => `<article class="quality-stat"><span>${escapeHtml(label)}</span><strong>${escapeHtml(typeof value === 'number' ? value.toLocaleString(dashboardLocale()) : (value ?? '—'))}</strong><small>${escapeHtml(detail)}</small></article>`).join('');
     catalogQualityTotal = data.total || 0;
     rows.innerHTML = (data.items || []).map(item => {
-      const reason = item.disposition === 'review_required' ? 'Sẵn sàng rà soát' : item.disposition === 'source_invalid' ? 'Nguồn chưa hợp lệ' : item.disposition;
-      const sourceLabels = {present:'Có nguồn',missing:'Không có nguồn',unavailable:'Không đọc được nguồn'};
-      const details = item.missing_reference_count ? `Thiếu ${item.missing_reference_count} tham chiếu` : (sourceLabels[item.source_status] || item.source_status || 'Chưa rõ');
+      const reason = item.disposition === 'review_required' ? dashboardText("Ready for review", 'Sẵn sàng rà soát') : item.disposition === 'source_invalid' ? dashboardText("Invalid source", 'Nguồn chưa hợp lệ') : item.disposition;
+      const sourceLabels = {present:dashboardText("Source available", 'Có nguồn'),missing:dashboardText("Source missing", 'Không có nguồn'),unavailable:dashboardText("Source unreadable", 'Không đọc được nguồn')};
+      const details = item.missing_reference_count ? `${dashboardText("Missing ", "Thiếu ")}${item.missing_reference_count}${dashboardText(" references", " tham chiếu")}` : (sourceLabels[item.source_status] || item.source_status || dashboardText("Unknown", 'Chưa rõ'));
       return `<tr><td><button type="button" class="resource-link catalog-inspect" data-id="${escapeHtml(item.id)}">${escapeHtml(item.id)}</button></td><td><span class="quality-tag">${escapeHtml(reason)}</span></td><td>${escapeHtml(details)}</td></tr>`;
-    }).join('') || '<tr><td colspan="3">Không có mục phù hợp.</td></tr>';
+    }).join('') || `<tr><td colspan="3">${dashboardText('No matching items', 'Không có mục phù hợp')}.</td></tr>`;
     rows.querySelectorAll('.catalog-inspect').forEach(button => button.addEventListener('click', () => openResourceInspector(button.dataset.id.replace(/^skill:/, ''), 'skill')));
     document.getElementById('catalog-quality-range').textContent = `${data.total ? data.offset+1 : 0}–${data.offset+(data.items || []).length} / ${data.total}`;
     document.getElementById('catalog-quality-prev').disabled = data.offset <= 0;
     document.getElementById('catalog-quality-next').disabled = data.offset + (data.items || []).length >= data.total;
   } catch (error) {
-    source.textContent = 'Không có biên nhận catalog hợp lệ';
+    source.textContent = dashboardText("Valid catalog receipt unavailable", 'Không có biên nhận catalog hợp lệ');
     document.getElementById('catalog-quality-summary').innerHTML = '';
-    rows.innerHTML = '<tr><td colspan="3">Không thể tải dữ liệu. Kiểm tra nguồn rồi thử làm mới.</td></tr>';
+    rows.innerHTML = `<tr><td colspan="3">${dashboardText('Could not load data. Check the source and refresh', 'Không thể tải dữ liệu. Kiểm tra nguồn rồi thử làm mới')}.</td></tr>`;
     document.getElementById('catalog-quality-range').textContent = '';
     document.getElementById('catalog-quality-prev').disabled = true;
     document.getElementById('catalog-quality-next').disabled = true;
@@ -2782,14 +2486,14 @@ async function loadCatalogQuality() {
 
 function renderCuration(data) {
   const badge=document.getElementById('curation-badge'), summary=document.getElementById('curation-summary'), rows=document.getElementById('curation-rows');
-  const labels={active_reviewed:'Đã rà soát',active_repaired:'Đã sửa',active_admitted:'Đã tiếp nhận',active_review_pending:'Đang dùng · còn cảnh báo',active_policy_blocked:'Bị chính sách chặn khi nạp',quarantine_security:'Cách ly bảo mật',quarantine_structure:'Cách ly cấu trúc',deleted_duplicate:'Đã loại trùng'};
+  const labels={active_reviewed:dashboardText("Reviewed", 'Đã rà soát'),active_repaired:dashboardText("Repaired", 'Đã sửa'),active_admitted:dashboardText("Admitted", 'Đã tiếp nhận'),active_review_pending:dashboardText("Active · warnings remain", 'Đang dùng · còn cảnh báo'),active_policy_blocked:dashboardText("Loading blocked by policy", 'Bị chính sách chặn khi nạp'),quarantine_security:dashboardText("Quarantined for security", 'Cách ly bảo mật'),quarantine_structure:dashboardText("Quarantined for structure", 'Cách ly cấu trúc'),deleted_duplicate:dashboardText("Duplicate removed", 'Đã loại trùng')};
   if (!data || data.status!=='available') {
-    badge.textContent='Chưa có dữ liệu phân loại'; summary.innerHTML=''; rows.innerHTML='<tr><td colspan="3">Catalog này chưa có bảng phân loại.</td></tr>';
+    badge.textContent=dashboardText("Classification unavailable", 'Chưa có dữ liệu phân loại'); summary.innerHTML=''; rows.innerHTML=`<tr><td colspan="3">${dashboardText('This catalog has no classification data', 'Catalog này chưa có bảng phân loại')}.</td></tr>`;
     document.getElementById('curation-range').textContent=''; document.getElementById('curation-prev').disabled=true; document.getElementById('curation-next').disabled=true; return;
   }
-  badge.textContent='Có dữ liệu';
+  badge.textContent=dashboardText("Data available", 'Có dữ liệu');
   summary.innerHTML=Object.entries(labels).map(([key,label])=>`<article class="quality-stat"><span>${escapeHtml(label)}</span><strong>${escapeHtml(data.counts[key] || 0)}</strong></article>`).join('');
-  rows.innerHTML=(data.items || []).map(item=>`<tr><td>${escapeHtml(item.kind)}: ${escapeHtml(item.id)}</td><td>${escapeHtml(labels[item.state] || item.state)}</td><td>${escapeHtml(item.reason)}</td></tr>`).join('') || '<tr><td colspan="3">Không có mục phù hợp.</td></tr>';
+  rows.innerHTML=(data.items || []).map(item=>`<tr><td>${escapeHtml(item.kind)}: ${escapeHtml(item.id)}</td><td>${escapeHtml(labels[item.state] || item.state)}</td><td>${escapeHtml(item.reason)}</td></tr>`).join('') || `<tr><td colspan="3">${dashboardText('No matching items', 'Không có mục phù hợp')}.</td></tr>`;
   document.getElementById('curation-range').textContent=`${data.total ? data.offset+1 : 0}–${data.offset+data.items.length} / ${data.total}`;
   document.getElementById('curation-prev').disabled=data.offset<=0;
   document.getElementById('curation-next').disabled=data.offset+data.items.length>=data.total;
@@ -2798,16 +2502,16 @@ function renderCuration(data) {
 function renderOriginalSources(original) {
   const badge=document.getElementById('original-source-badge'), box=document.getElementById('original-source-summary'), rows=document.getElementById('original-source-rows');
   if (!original || original.status !== 'verified-receipt') {
-    badge.textContent='Biên nhận không khả dụng'; box.innerHTML=''; rows.innerHTML='<tr><td colspan="3">Chưa thể đối chiếu nguồn gốc.</td></tr>';
+    badge.textContent=dashboardText("Receipt unavailable", 'Biên nhận không khả dụng'); box.innerHTML=''; rows.innerHTML=`<tr><td colspan="3">${dashboardText('Original source could not be checked', 'Chưa thể đối chiếu nguồn gốc')}.</td></tr>`;
     document.getElementById('original-source-range').textContent='';
     document.getElementById('original-source-prev').disabled=true; document.getElementById('original-source-next').disabled=true; return;
   }
-  badge.textContent=`Đã ghim · ${formatReviewTime(original.reviewed_at)}`;
+  badge.textContent=`${dashboardText("Pinned · ", "Đã ghim · ")}${formatReviewTime(original.reviewed_at)}`;
   const sum=original.summary || {}, cov=original.coverage || {};
-  box.innerHTML=[['Cần rà soát tiếp',sum.needs_source_review || 0],['Ví dụ đã đối chiếu',sum.confirmed_example || 0],['Không khớp quy tắc',sum.no_rule_hit || 0],['Không khả dụng / đã đổi',(sum.source_unavailable || 0)+(sum.source_changed || 0)]].map(([label,value])=>`<article class="quality-stat"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></article>`).join('');
-  const labels={needs_source_review:'Cần rà soát tiếp',confirmed_example:'Ví dụ đã đối chiếu',no_rule_hit:'Không khớp quy tắc',source_unavailable:'Không đọc được',source_changed:'Nguồn đã thay đổi'};
-  const reasons={environment_reference:'Tham chiếu biến môi trường',explicit_placeholder:'Giá trị minh họa',python_value_reference:'Tham chiếu giá trị Python',literal_or_expression_requires_review:'Giá trị hoặc biểu thức cần rà soát',original_redacted_marker_requires_review:'Dấu ẩn trong nguồn cần kiểm tra',provider_format_literal:'Chuỗi theo định dạng nhà cung cấp',quoted_literal_requires_review:'Chuỗi đặt trong dấu nháy cần kiểm tra',dynamic_expression_unverified:'Biểu thức động chưa xác minh',unquoted_literal_or_type_unverified:'Giá trị chưa xác minh',educational_attack_example:'Ví dụ hướng dẫn bảo mật',unverified_execution_or_override:'Lệnh thực thi hoặc ghi đè chưa xác minh'};
-  rows.innerHTML=(original.items || []).map(item=>`<tr><td><button class="resource-link original-inspect" data-id="${escapeHtml(item.id)}" data-kind="${escapeHtml(item.kind)}">${escapeHtml(item.id)}</button></td><td>${escapeHtml(labels[item.disposition] || item.disposition)}${item.manual_decision ? `<br><small>Quyết định thủ công (không kích hoạt): ${escapeHtml(item.manual_decision.status || item.manual_decision.outcome)}</small>` : ''}</td><td>${escapeHtml((item.reasons || []).map(reason => reasons[reason] || reason).join(', ') || '—')}<br><small class="font-mono" title="${escapeHtml(item.source_content_sha256 || '')}">Nguồn: ${escapeHtml(truncateStr(item.source_content_sha256 || 'chưa có mã', 14))}</small></td></tr>`).join('') || '<tr><td colspan="3">Không có mục phù hợp.</td></tr>';
+  box.innerHTML=[[dashboardText("Further review needed", 'Cần rà soát tiếp'),sum.needs_source_review || 0],[dashboardText("Confirmed example", 'Ví dụ đã đối chiếu'),sum.confirmed_example || 0],[dashboardText("No rule match", 'Không khớp quy tắc'),sum.no_rule_hit || 0],[dashboardText("Unavailable or changed", 'Không khả dụng / đã đổi'),(sum.source_unavailable || 0)+(sum.source_changed || 0)]].map(([label,value])=>`<article class="quality-stat"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></article>`).join('');
+  const labels={needs_source_review:dashboardText("Further review needed", 'Cần rà soát tiếp'),confirmed_example:dashboardText("Confirmed example", 'Ví dụ đã đối chiếu'),no_rule_hit:dashboardText("No rule match", 'Không khớp quy tắc'),source_unavailable:dashboardText("Unreadable", 'Không đọc được'),source_changed:dashboardText("Source changed", 'Nguồn đã thay đổi')};
+  const reasons={environment_reference:dashboardText("Environment variable reference", 'Tham chiếu biến môi trường'),explicit_placeholder:dashboardText("Example value", 'Giá trị minh họa'),python_value_reference:dashboardText("Python value reference", 'Tham chiếu giá trị Python'),literal_or_expression_requires_review:dashboardText("Value or expression needs review", 'Giá trị hoặc biểu thức cần rà soát'),original_redacted_marker_requires_review:dashboardText("Redaction marker needs review at source", 'Dấu ẩn trong nguồn cần kiểm tra'),provider_format_literal:dashboardText("String matching provider format", 'Chuỗi theo định dạng nhà cung cấp'),quoted_literal_requires_review:dashboardText("Quoted literal needs review", 'Chuỗi đặt trong dấu nháy cần kiểm tra'),dynamic_expression_unverified:dashboardText("Unverified dynamic expression", 'Biểu thức động chưa xác minh'),unquoted_literal_or_type_unverified:dashboardText("Unverified value", 'Giá trị chưa xác minh'),educational_attack_example:dashboardText("Security guidance example", 'Ví dụ hướng dẫn bảo mật'),unverified_execution_or_override:dashboardText("Unverified execution or override", 'Lệnh thực thi hoặc ghi đè chưa xác minh')};
+  rows.innerHTML=(original.items || []).map(item=>`<tr><td><button class="resource-link original-inspect" data-id="${escapeHtml(item.id)}" data-kind="${escapeHtml(item.kind)}">${escapeHtml(item.id)}</button></td><td>${escapeHtml(labels[item.disposition] || item.disposition)}${item.manual_decision ? `<br><small>${dashboardText('Manual decision (no activation', 'Quyết định thủ công (không kích hoạt')}): ${escapeHtml(item.manual_decision.status || item.manual_decision.outcome)}</small>` : ''}</td><td>${escapeHtml((item.reasons || []).map(reason => reasons[reason] || reason).join(', ') || '—')}<br><small class="font-mono" title="${escapeHtml(item.source_content_sha256 || '')}${dashboardText("\">Source: ", "\">Nguồn: ")}${escapeHtml(truncateStr(item.source_content_sha256 || dashboardText("hash unavailable", 'chưa có mã'), 14))}</small></td></tr>`).join('') || `<tr><td colspan="3">${dashboardText('No matching items', 'Không có mục phù hợp')}.</td></tr>`;
   rows.querySelectorAll('.original-inspect').forEach(button=>button.addEventListener('click',()=>openResourceInspector(button.dataset.id,button.dataset.kind)));
   document.getElementById('original-source-range').textContent=`${cov.filtered_total ? cov.offset+1 : 0}–${(cov.offset || 0)+(cov.returned || 0)} / ${cov.filtered_total || 0}`;
   document.getElementById('original-source-prev').disabled=(cov.offset || 0)<=0;
@@ -2826,33 +2530,47 @@ function setupQualityWorkspace() {
   document.getElementById('original-source-filter').addEventListener('change',()=>{originalSourceOffset=0;loadQualityView();});
   document.getElementById('original-source-prev').addEventListener('click',()=>{originalSourceOffset=Math.max(0,originalSourceOffset-20);loadQualityView();});
   document.getElementById('original-source-next').addEventListener('click',()=>{originalSourceOffset+=20;loadQualityView();});
-  document.getElementById('retrieval-check-btn').addEventListener('click',async event=>{
-    const button=event.currentTarget, status=document.getElementById('retrieval-check-status'), out=document.getElementById('retrieval-check-results');
-    button.disabled=true; status.textContent='Đang kiểm tra…'; out.textContent='';
+  const check = document.getElementById('retrieval-check-btn');
+  const status = document.getElementById('retrieval-check-status');
+  const out = document.getElementById('retrieval-check-results');
+  let renderCheck;
+  function renderCheckResult(data) {
+    status.textContent=data.status==='ok'?dashboardText("Checked all three queries", 'Đã đối chiếu 3 câu'):dashboardText("Some queries did not match or are unavailable", 'Có câu chưa khớp hoặc không khả dụng');
+    out.innerHTML=`<p class="quality-caption">${escapeHtml(formatReviewTime(data.observed_at))}${dashboardText(" · Scope: Top five local semantic results</p>", " · Phạm vi: top 5 tìm kiếm ngữ nghĩa cục bộ</p>")}`+data.cases.map(item=>`<article class="retrieval-result"><strong>${escapeHtml(item.query)}</strong><span>${item.status==='matched'?dashboardText("Matched", 'Đã khớp'):item.status==='miss'?dashboardText("No match", 'Chưa khớp'):dashboardText("Unavailable", 'Không khả dụng')} · ${escapeHtml(item.elapsed_ms ?? '—')} ms</span><small>${dashboardText('Expected', 'Kỳ vọng')}: ${escapeHtml((item.expected_skill_families || []).join(', '))}</small><small>${dashboardText('Results', 'Kết quả')}: ${escapeHtml((item.hits || []).join(', ') || dashboardText("None", 'Không có'))}</small></article>`).join('');
+  }
+  window.addEventListener('skillhub:languagechange', () => renderCheck?.());
+  check.addEventListener('click', async () => {
+    check.disabled = true;
+    out.textContent = '';
+    renderCheck = () => { status.textContent = dashboardText('Checking…', 'Đang kiểm tra…'); };
+    renderCheck();
     try {
-      const response=await apiFetch('retrieval-check',{method:'POST',body:{}}), data=response.data;
-      if(!data || !Array.isArray(data.cases)) throw new Error('Không nhận được kết quả');
-      status.textContent=data.status==='ok'?'Đã đối chiếu 3 câu':'Có câu chưa khớp hoặc không khả dụng';
-      out.innerHTML=`<p class="quality-caption">${escapeHtml(formatReviewTime(data.observed_at))} · Phạm vi: top 5 tìm kiếm ngữ nghĩa cục bộ</p>`+data.cases.map(item=>`<article class="retrieval-result"><strong>${escapeHtml(item.query)}</strong><span>${item.status==='matched'?'Đã khớp':item.status==='miss'?'Chưa khớp':'Không khả dụng'} · ${escapeHtml(item.elapsed_ms ?? '—')} ms</span><small>Kỳ vọng: ${escapeHtml((item.expected_skill_families || []).join(', '))}</small><small>Kết quả: ${escapeHtml((item.hits || []).join(', ') || 'Không có')}</small></article>`).join('');
-    } catch(error) { status.textContent='Không thể kiểm tra'; out.textContent=error.message || 'Thử lại sau.'; }
-    finally { button.disabled=false; }
+      const {data} = await apiFetch('retrieval-check', {method:'POST', body:{}});
+      renderCheck = data && Array.isArray(data.cases)
+        ? () => renderCheckResult(data)
+        : () => {
+            status.textContent = dashboardText('Check unavailable', 'Không thể kiểm tra');
+            out.textContent = dashboardText('No result received', 'Không nhận được kết quả');
+          };
+    } catch (error) {
+      renderCheck = () => {
+        status.textContent = dashboardText('Check unavailable', 'Không thể kiểm tra');
+        out.textContent = error.message || dashboardText('Try again later.', 'Thử lại sau.');
+      };
+    } finally {
+      renderCheck();
+      check.disabled = false;
+    }
   });
-}
-
-function setupMobileNavigation() {
-  const button=document.getElementById('mobile-menu-toggle'), nav=document.getElementById('primary-navigation');
-  button.addEventListener('click',()=>{const open=nav.classList.toggle('is-open');button.setAttribute('aria-expanded',String(open));button.setAttribute('aria-label',open?'Đóng menu điều hướng':'Mở menu điều hướng');});
-  nav.addEventListener('click', event=>{if(event.detail !== 0 && event.target.closest('.nav-item') && window.matchMedia('(max-width: 860px)').matches){nav.classList.remove('is-open');button.setAttribute('aria-expanded','false');button.setAttribute('aria-label','Mở menu điều hướng');}});
-  nav.addEventListener('keydown',event=>{if(!['ArrowDown','ArrowUp','ArrowLeft','ArrowRight','Home','End'].includes(event.key))return; const tabs=[...nav.querySelectorAll('.nav-item')], i=tabs.indexOf(document.activeElement); if(i<0)return; event.preventDefault(); const next=event.key==='Home'?0:event.key==='End'?tabs.length-1:(i+(['ArrowDown','ArrowRight'].includes(event.key)?1:-1)+tabs.length)%tabs.length;tabs[next].focus();tabs[next].click();});
 }
 
 // ----------------------------------------------------------------------------
 // 10: System Configuration View
 // ----------------------------------------------------------------------------
 
-async function loadConfigView() {
-  if (window.skillHubIntake) window.skillHubIntake.refresh();
-  const resp = await apiFetch('config');
+async function loadConfigView(read = viewReader('config', false), cached = false) {
+  if (!cached && window.skillHubIntake) window.skillHubIntake.refresh();
+  const resp = await read('config');
   const data = resp.data || {};
 
   state.capabilities = data.capabilities || [];
@@ -2868,17 +2586,17 @@ async function loadConfigView() {
     const snapState = state.owned['source-snapshot_state'] || {};
 
     const resInput = document.getElementById('cfg-resource-limit');
-    if (resInput && typeof cfg.resource_limit === 'number') resInput.value = cfg.resource_limit;
+    if (!cached && resInput && typeof cfg.resource_limit === 'number') resInput.value = cfg.resource_limit;
 
     const graphInput = document.getElementById('cfg-graph-limit');
-    if (graphInput && typeof cfg.graph_limit === 'number') graphInput.value = cfg.graph_limit;
+    if (!cached && graphInput && typeof cfg.graph_limit === 'number') graphInput.value = cfg.graph_limit;
 
     const routingSelect = document.getElementById('cfg-routing-source');
-    if (routingSelect && cfg.routing_source) routingSelect.value = cfg.routing_source;
+    if (!cached && routingSelect && cfg.routing_source) routingSelect.value = cfg.routing_source;
 
     const stBadge = document.getElementById('owned-settings-status-badge');
     if (stBadge) {
-      stBadge.textContent = stState.present ? 'Trạng thái: Đã lưu trữ' : 'Trạng thái: Mặc định runtime';
+      stBadge.textContent = stState.present ? dashboardText("Status: Saved", 'Trạng thái: Đã lưu trữ') : dashboardText("Status: Runtime defaults", 'Trạng thái: Mặc định runtime');
       stBadge.className = stState.present ? 'badge badge-alive' : 'badge badge-subtle';
     }
 
@@ -2889,7 +2607,8 @@ async function loadConfigView() {
 
     const backupSelect = document.getElementById('cfg-settings-backup-select');
     if (backupSelect) {
-      backupSelect.innerHTML = '<option value="">-- Chọn bản sao lưu để khôi phục --</option>';
+      const previous = backupSelect.value;
+      backupSelect.innerHTML = `<option value="">${dashboardText('Select a backup to restore', '-- Chọn bản sao lưu để khôi phục --')}</option>`;
       const backups = stState.backups || [];
       backups.forEach(b => {
         const opt = document.createElement('option');
@@ -2897,13 +2616,14 @@ async function loadConfigView() {
         opt.textContent = `${b.slice(0, 12)}… (${b.slice(0, 6)})`;
         backupSelect.appendChild(opt);
       });
+      if (cached) backupSelect.value = previous;
       const rollbackBtn = document.getElementById('btn-rollback-owned-settings');
       if (rollbackBtn) rollbackBtn.disabled = backups.length === 0;
     }
 
     const snapBadge = document.getElementById('snapshot-status-badge');
     if (snapBadge) {
-      snapBadge.textContent = snapState.present ? 'Trạng thái: Đã xuất' : 'Trạng thái: Chưa xuất';
+      snapBadge.textContent = snapState.present ? dashboardText("Status: Exported", 'Trạng thái: Đã xuất') : dashboardText("Status: Export pending", 'Trạng thái: Chưa xuất');
       snapBadge.className = snapState.present ? 'badge badge-alive' : 'badge badge-subtle';
     }
 
@@ -2922,13 +2642,13 @@ async function loadConfigView() {
 
   if (liveStatusBadge) {
     if (liveCfg.status === 'observed') {
-      liveStatusBadge.textContent = `Server: Hoạt động (HTTP ${liveCfg.http_status || 200})`;
+      liveStatusBadge.textContent = `${dashboardText("Server: Available (HTTP ", "Server: Hoạt động (HTTP ")}${liveCfg.http_status || 200})`;
       liveStatusBadge.className = 'badge badge-alive';
     } else if (liveCfg.status === 'degraded') {
-      liveStatusBadge.textContent = `Server: Suy giảm (HTTP ${liveCfg.http_status || 503})`;
+      liveStatusBadge.textContent = `${dashboardText("Server: Degraded (HTTP ", "Server: Suy giảm (HTTP ")}${liveCfg.http_status || 503})`;
       liveStatusBadge.className = 'badge badge-warning';
     } else {
-      liveStatusBadge.textContent = 'Server: Không khả dụng (Offline)';
+      liveStatusBadge.textContent = dashboardText("Server: Offline", 'Server: Không khả dụng (Offline)');
       liveStatusBadge.className = 'badge badge-blocked';
     }
   }
@@ -2936,16 +2656,16 @@ async function loadConfigView() {
   if (liveGpuBadge) {
     const warmup = liveCfg.warmup || {};
     if (warmup.gpu_resident) {
-      liveGpuBadge.textContent = 'dGPU: Thường trú VRAM (BGE-M3)';
+      liveGpuBadge.textContent = dashboardText("dGPU: BGE-M3 resident in VRAM", 'dGPU: Thường trú VRAM (BGE-M3)');
       liveGpuBadge.className = 'badge badge-alive';
     } else if (warmup.ok) {
-      liveGpuBadge.textContent = 'dGPU: Không thường trú (Phối hợp CPU/RAM)';
+      liveGpuBadge.textContent = dashboardText("dGPU: Non-resident (CPU/RAM assisted)", 'dGPU: Không thường trú (Phối hợp CPU/RAM)');
       liveGpuBadge.className = 'badge badge-alive';
     } else if (warmup.ok === false) {
-      liveGpuBadge.textContent = 'dGPU: Chưa sẵn sàng / Lỗi';
+      liveGpuBadge.textContent = dashboardText("dGPU: Unavailable or failed", 'dGPU: Chưa sẵn sàng / Lỗi');
       liveGpuBadge.className = 'badge badge-blocked';
     } else {
-      liveGpuBadge.textContent = 'dGPU: Không xác định';
+      liveGpuBadge.textContent = dashboardText("dGPU: Unknown", 'dGPU: Không xác định');
       liveGpuBadge.className = 'badge badge-subtle';
     }
   }
@@ -2953,12 +2673,12 @@ async function loadConfigView() {
   if (liveVecBadge) {
     const warmup = liveCfg.warmup || {};
     const vecs = warmup.semantic_vectors !== undefined ? warmup.semantic_vectors : '—';
-    liveVecBadge.textContent = `Vectors: ${vecs}`;
+    liveVecBadge.textContent = `${dashboardText('Vectors', 'Vector')}: ${vecs}`;
     liveVecBadge.className = vecs > 0 ? 'badge badge-alive font-mono text-xs' : 'badge badge-subtle font-mono text-xs';
   }
 
   if (liveTime && liveCfg.observed_at) {
-    liveTime.textContent = `Quan sát lúc: ${formatIsoTime(liveCfg.observed_at)}`;
+    liveTime.textContent = `${dashboardText("Observed: ", "Quan sát lúc: ")}${formatIsoTime(liveCfg.observed_at)}`;
   }
 
   // Capabilities Table
@@ -2967,8 +2687,8 @@ async function loadConfigView() {
   state.capabilities.forEach(cap => {
     const tr = document.createElement('tr');
     const supBadge = cap.supported ?
-      '<span class="badge badge-alive">Hỗ trợ</span>' :
-      '<span class="badge badge-blocked">Không hỗ trợ</span>';
+      `<span class="badge badge-alive">${dashboardText('Supported', 'Hỗ trợ')}</span>` :
+      `<span class="badge badge-blocked">${dashboardText('Unsupported', 'Không hỗ trợ')}</span>`;
     const riskBadge = cap.risk === 'isolated-write' ?
       '<span class="badge badge-warning">isolated-write</span>' :
       `<span class="badge badge-subtle">${escapeHtml(cap.risk || 'none')}</span>`;
@@ -2987,17 +2707,17 @@ async function loadConfigView() {
   syncTbody.innerHTML = '';
   const syncList = data.sync || [];
   if (syncList.length === 0) {
-    syncTbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Không có biên lai đồng bộ.</td></tr>';
+    syncTbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted">${dashboardText('No sync receipts', 'Không có biên lai đồng bộ')}.</td></tr>`;
   } else {
     syncList.forEach(s => {
       const tr = document.createElement('tr');
-      const okBadge = s.ok ? '<span class="badge badge-alive">OK</span>' : '<span class="badge badge-blocked">Lỗi</span>';
+      const okBadge = s.ok ? '<span class="badge badge-alive">OK</span>' : `<span class="badge badge-blocked">${dashboardText('Error', 'Lỗi')}</span>`;
       tr.innerHTML = `
         <td class="font-mono text-xs">${escapeHtml(s.schema || 'sync')}</td>
         <td class="font-mono text-xs">${formatIsoTime(s.generated_at)}</td>
         <td>${okBadge}</td>
-        <td>${s.dry_run ? 'Có' : 'Không'}</td>
-        <td>${s.runtime_verified ? 'Đã kiểm tra' : 'Chưa'}</td>
+        <td>${s.dry_run ? dashboardText("Yes", 'Có') : dashboardText("No", 'Không')}</td>
+        <td>${s.runtime_verified ? dashboardText("Verified", 'Đã kiểm tra') : dashboardText("Pending", 'Chưa')}</td>
       `;
       syncTbody.appendChild(tr);
     });
@@ -3007,12 +2727,12 @@ async function loadConfigView() {
   const qTbody = document.getElementById('quarantine-table-body');
   qTbody.innerHTML = '';
   const qList = data.quarantine || [];
-  document.getElementById('quarantine-count-badge').textContent = `${qList.length} bản ghi`;
+  document.getElementById('quarantine-count-badge').textContent = `${qList.length}${dashboardText(" records", " bản ghi")}`;
   const pillQ = document.getElementById('pill-count-quarantine');
   if (pillQ) pillQ.textContent = String(qList.length);
 
   if (qList.length === 0) {
-    qTbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Khu vực cách ly hiện đang rỗng.</td></tr>';
+    qTbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted">${dashboardText('Quarantine is empty', 'Khu vực cách ly hiện đang rỗng')}.</td></tr>`;
   } else {
     qList.forEach(qItem => {
       const tr = document.createElement('tr');
@@ -3020,17 +2740,17 @@ async function loadConfigView() {
       let rollbackBtn = '—';
       if (backupsCount > 0) {
         const latestBackup = qItem.backups[0];
-        rollbackBtn = `<button class="btn btn-subtle btn-rollback" data-kind="${escapeHtml(qItem.kind)}" data-name="${escapeHtml(qItem.name)}" data-sha="${escapeHtml(qItem.sha256)}" data-version="${escapeHtml(latestBackup)}">Rollback (${backupsCount})</button>`;
+        rollbackBtn = `<button class="btn btn-subtle btn-rollback" data-kind="${escapeHtml(qItem.kind)}" data-name="${escapeHtml(qItem.name)}" data-sha="${escapeHtml(qItem.sha256)}" data-version="${escapeHtml(latestBackup)}">${dashboardText("Rollback", "Khôi phục")} (${backupsCount})</button>`;
       }
 
       tr.innerHTML = `
         <td><span class="badge badge-subtle">${escapeHtml(qItem.kind)}</span></td>
         <td><strong>${escapeHtml(qItem.name)}</strong></td>
         <td class="font-mono text-xs" title="${escapeHtml(qItem.version)}">${escapeHtml(truncateStr(qItem.version, 10))}</td>
-        <td><span class="badge badge-subtle">${backupsCount} bản</span></td>
+        <td><span class="badge badge-subtle">${backupsCount} b${dashboardText('ackups', 'ản')}</span></td>
         <td>
           <div class="pagination-controls">
-            <button class="btn btn-subtle btn-edit-quarantine" data-kind="${escapeHtml(qItem.kind)}" data-name="${escapeHtml(qItem.name)}">Sửa</button>
+            <button class="btn btn-subtle btn-edit-quarantine" data-kind="${escapeHtml(qItem.kind)}" data-name="${escapeHtml(qItem.name)}">${dashboardText('Edit', 'Sửa')}</button>
             ${rollbackBtn}
           </div>
         </td>
@@ -3066,7 +2786,10 @@ async function loadConfigView() {
 // Resource Inspector Drawer Logic
 // ============================================================================
 
+let redrawInspector = null;
+
 function openInspectorDrawer() {
+  redrawInspector = null;
   state.activeDrawerOpener = document.activeElement;
   const drawer = document.getElementById('inspector-drawer');
   drawer.classList.add('open');
@@ -3075,161 +2798,122 @@ function openInspectorDrawer() {
 }
 
 function closeInspectorDrawer() {
+  redrawInspector = null;
   const drawer = document.getElementById('inspector-drawer');
   if (state.activeDrawerOpener && typeof state.activeDrawerOpener.focus === 'function') {
     state.activeDrawerOpener.focus();
   }
   drawer.classList.remove('open');
   drawer.setAttribute('aria-hidden', 'true');
-  document.querySelectorAll('.graph-node.selected, .graph-edge.selected').forEach(el => el.classList.remove('selected'));
 }
 
 async function openResourceInspector(resourceId, kind) {
   if (typeof resourceId !== 'string' || !resourceId) return;
   if (resourceId.startsWith(kind + ':')) resourceId = resourceId.slice(kind.length + 1);
   openInspectorDrawer();
-  const nameEl = document.getElementById('inspector-name');
-  const eyebrowEl = document.getElementById('inspector-eyebrow');
-  const bodyEl = document.getElementById('inspector-body');
-
-  eyebrowEl.textContent = `CHI TIẾT ${kind.toUpperCase()}`;
-  nameEl.textContent = resourceId;
-  bodyEl.innerHTML = '<p class="text-muted">Đang tải thông tin chi tiết từ backend...</p>';
+  let pending = true;
+  let item;
+  let failure;
+  const render = () => renderResourceInspector(resourceId, kind, pending, item, failure);
+  redrawInspector = render;
+  render();
 
   try {
     const resp = await apiFetch(`resources/${encodeURIComponent(resourceId)}?kind=${encodeURIComponent(kind)}`);
-    const data = resp.data || {};
-    const item = data.item;
-
-    if (!item) {
-      bodyEl.innerHTML = '<p class="text-danger">Không tìm thấy tài nguyên trong catalog.</p>';
-      return;
-    }
-
-    const isDoc = kind === 'document' || item.kind === 'document';
-    const isEditable = item.editable !== false && !isDoc;
-    const hasRevision = Boolean(item.revision);
-
-    let actionBtnHtml = '';
-    if (isEditable) {
-      const actionBtnText = hasRevision ? 'Tạo bản sửa đổi trong Quarantine' : 'Cập nhật trong Quarantine';
-      actionBtnHtml = `
-        <div class="inspector-prop-row mt-sm">
-          <button class="btn btn-primary" id="inspector-update-btn">${actionBtnText}</button>
-        </div>
-      `;
-    } else {
-      actionBtnHtml = `
-        <div class="inspector-prop-row mt-sm">
-          <span class="badge badge-subtle">Tài liệu chỉ đọc (editable: false)</span>
-        </div>
-      `;
-    }
-
-    bodyEl.innerHTML = `
-      <div class="inspector-prop-row">
-        <span class="inspector-prop-label">Tên chuẩn (Canonical Name)</span>
-        <div class="inspector-prop-val"><code>${escapeHtml(item.canonical_name || item.name)}</code></div>
-      </div>
-
-      <div class="inspector-prop-row">
-        <span class="inspector-prop-label">Chuyên mục (Domain)</span>
-        <div class="inspector-prop-val"><span class="badge badge-subtle">${escapeHtml(item.domain || 'general')}</span></div>
-      </div>
-
-      <div class="inspector-prop-row">
-        <span class="inspector-prop-label">Phiên bản (Body SHA256)</span>
-        <div class="inspector-prop-val font-mono text-xs">${escapeHtml(item.version || '—')}</div>
-      </div>
-
-      <div class="inspector-prop-row">
-        <span class="inspector-prop-label">Phụ thuộc (Dependencies)</span>
-        <div class="inspector-prop-val text-muted text-xs">Chưa có liên kết phụ thuộc ghi nhận trong catalog.</div>
-      </div>
-
-      <div class="inspector-prop-row">
-        <span class="inspector-prop-label">Mô tả</span>
-        <div class="inspector-prop-val text-sm">${escapeHtml(item.description || 'Không có mô tả')}</div>
-      </div>
-
-      <div class="inspector-prop-row">
-        <span class="inspector-prop-label">Nội dung Thân tài nguyên (Body)</span>
-        <div class="inspector-body-preview">${renderSafeMarkdownText(item.body)}</div>
-      </div>
-
-      ${actionBtnHtml}
-    `;
-
-    if (isEditable) {
-      document.getElementById('inspector-update-btn')?.addEventListener('click', () => {
-        closeInspectorDrawer();
-        if (hasRevision) {
-          openQuarantineModalWithRevision(item);
-        } else {
-          openQuarantineModalWithPrefill('resource.update', item.kind || kind, item.name, item.version);
-        }
-      });
-    }
-  } catch (err) {
-    bodyEl.innerHTML = `<p class="text-danger">Lỗi đọc chi tiết: ${escapeHtml(err.message)}</p>`;
+    item = resp.data?.item;
+  } catch (error) {
+    failure = error;
+  } finally {
+    pending = false;
+    if (redrawInspector === render) render();
   }
 }
 
-function openEdgeInspector(edge) {
-  openInspectorDrawer();
-  const eyebrowEl = document.getElementById('inspector-eyebrow');
+function renderResourceInspector(resourceId, kind, pending, item, failure) {
   const nameEl = document.getElementById('inspector-name');
+  const eyebrowEl = document.getElementById('inspector-eyebrow');
   const bodyEl = document.getElementById('inspector-body');
 
-  eyebrowEl.textContent = 'KIỂM TRA LIÊN KẾT ĐỒ THỊ';
-  nameEl.textContent = `${edge.source} → ${edge.target}`;
+  eyebrowEl.textContent = `${dashboardText("DETAILS · ", "CHI TIẾT ")}${kind.toUpperCase()}`;
+  nameEl.textContent = resourceId;
+  if (pending) {
+    bodyEl.innerHTML = `<p class="text-muted">${dashboardText('Loading details…', 'Đang tải thông tin chi tiết từ backend...')}</p>`;
+    return;
+  }
+  if (failure) {
+    bodyEl.innerHTML = `<p class="text-danger">${dashboardText('Could not load details', 'Lỗi đọc chi tiết')}: ${escapeHtml(failure.message)}</p>`;
+    return;
+  }
 
-  const evidenceStr = typeof edge.evidence === 'object' ? JSON.stringify(edge.evidence, null, 2) : String(edge.evidence || '—');
+  if (!item) {
+    bodyEl.innerHTML = `<p class="text-danger">${dashboardText('Resource not found in the', 'Không tìm thấy tài nguyên trong')} catalog.</p>`;
+    return;
+  }
+
+  const isDoc = kind === 'document' || item.kind === 'document';
+  const isEditable = item.editable !== false && !isDoc;
+  const hasRevision = Boolean(item.revision);
+
+  let actionBtnHtml = '';
+  if (isEditable) {
+    const actionBtnText = hasRevision ? dashboardText("Create quarantine revision", 'Tạo bản sửa đổi trong Quarantine') : dashboardText("Update in quarantine", 'Cập nhật trong Quarantine');
+    actionBtnHtml = `
+      <div class="inspector-prop-row mt-sm">
+        <button class="btn btn-primary" id="inspector-update-btn">${actionBtnText}</button>
+      </div>
+    `;
+  } else {
+    actionBtnHtml = `
+      <div class="inspector-prop-row mt-sm">
+        <span class="badge badge-subtle">${dashboardText('Read-only document', 'Tài liệu chỉ đọc (editable: false)')}</span>
+      </div>
+    `;
+  }
 
   bodyEl.innerHTML = `
     <div class="inspector-prop-row">
-      <span class="inspector-prop-label">Loại quan hệ (Relationship Type)</span>
-      <div class="inspector-prop-val"><span class="badge badge-alive">${escapeHtml(edge.type || 'alias_of')}</span></div>
+      <span class="inspector-prop-label">${dashboardText('Canonical name', 'Tên chuẩn (Canonical Name)')}</span>
+      <div class="inspector-prop-val"><code>${escapeHtml(item.canonical_name || item.name)}</code></div>
     </div>
 
     <div class="inspector-prop-row">
-      <span class="inspector-prop-label">Nút nguồn (Source Node)</span>
-      <div class="inspector-prop-val">
-        <code>${escapeHtml(edge.source)}</code>
-        <button class="btn btn-subtle btn-inspect-source mt-xs" data-id="${escapeHtml(edge.source)}">Xem chi tiết nút nguồn</button>
-      </div>
+      <span class="inspector-prop-label">${dashboardText('Domain', 'Chuyên mục (Domain)')}</span>
+      <div class="inspector-prop-val"><span class="badge badge-subtle">${escapeHtml(item.domain || 'general')}</span></div>
     </div>
 
     <div class="inspector-prop-row">
-      <span class="inspector-prop-label">Nút đích (Target Node)</span>
-      <div class="inspector-prop-val">
-        <code>${escapeHtml(edge.target)}</code>
-        <button class="btn btn-subtle btn-inspect-target mt-xs" data-id="${escapeHtml(edge.target)}">Xem chi tiết nút đích</button>
-      </div>
+      <span class="inspector-prop-label">${dashboardText('Version (body SHA-256)', 'Phiên bản (SHA-256 phần thân)')}</span>
+      <div class="inspector-prop-val font-mono text-xs">${escapeHtml(item.version || '—')}</div>
     </div>
 
     <div class="inspector-prop-row">
-      <span class="inspector-prop-label">Bằng chứng quan hệ (Relationship Evidence)</span>
-      <div class="inspector-prop-val">
-        <pre class="code-block-sm"><code>${escapeHtml(evidenceStr)}</code></pre>
-      </div>
+      <span class="inspector-prop-label">${dashboardText('Dependencies', 'Phụ thuộc')}</span>
+      <div class="inspector-prop-val text-muted text-xs">${dashboardText('No dependency links recorded in the catalog.', 'Chưa có liên kết phụ thuộc ghi nhận trong catalog.')}</div>
     </div>
 
     <div class="inspector-prop-row">
-      <span class="inspector-prop-label">Chuỗi phụ thuộc (Dependency Trace)</span>
-      <div class="inspector-prop-val text-sm">
-        Đường liên kết trực tiếp giữa các thành phần đã được kiểm chứng từ dữ liệu catalog và projection.
-      </div>
+      <span class="inspector-prop-label">${dashboardText('Description', 'Mô tả')}</span>
+      <div class="inspector-prop-val text-sm">${escapeHtml(item.description || dashboardText("No description", 'Không có mô tả'))}</div>
     </div>
+
+    <div class="inspector-prop-row">
+      <span class="inspector-prop-label">${dashboardText('Resource body', 'Nội dung Thân tài nguyên (Body)')}</span>
+      <div class="inspector-body-preview">${renderSafeMarkdownText(item.body)}</div>
+    </div>
+
+    ${actionBtnHtml}
   `;
 
-  bodyEl.querySelector('.btn-inspect-source')?.addEventListener('click', () => {
-    openGraphNodeInspector(edge.source);
-  });
-
-  bodyEl.querySelector('.btn-inspect-target')?.addEventListener('click', () => {
-    openGraphNodeInspector(edge.target);
-  });
+  if (isEditable) {
+    document.getElementById('inspector-update-btn')?.addEventListener('click', () => {
+      closeInspectorDrawer();
+      if (hasRevision) {
+        openQuarantineModalWithRevision(item);
+      } else {
+        openQuarantineModalWithPrefill('resource.update', item.kind || kind, item.name, item.version);
+      }
+    });
+  }
 }
 
 function setupInspector() {
@@ -3273,8 +2957,8 @@ function openModalWithPlan(plan, targetLabel) {
 
   document.getElementById('plan-id-display').textContent = plan.plan_id;
   document.getElementById('plan-target-display').textContent = targetLabel || plan.ownership || 'dashboard-owned';
-  document.getElementById('plan-backup-display').textContent = plan.backup || 'Không có (hoặc bản ghi mới)';
-  document.getElementById('plan-ownership-display').textContent = 'Phạm vi: ' + plan.ownership;
+  document.getElementById('plan-backup-display').textContent = plan.backup || dashboardText("None or new record", 'Không có (hoặc bản ghi mới)');
+  document.getElementById('plan-ownership-display').textContent = dashboardText("Scope: ", 'Phạm vi: ') + plan.ownership;
 
   const changesPre = document.getElementById('plan-changes-preview');
   if (changesPre) {
@@ -3293,7 +2977,7 @@ function openModalWithPlan(plan, targetLabel) {
   if (confirmCheck) confirmCheck.checked = false;
   if (applyBtn) {
     applyBtn.disabled = true;
-    applyBtn.textContent = 'Xác nhận & Áp dụng Kế hoạch';
+    applyBtn.textContent = dashboardText("Confirm and apply plan", 'Xác nhận & Áp dụng Kế hoạch');
   }
 
   openModal();
@@ -3306,15 +2990,15 @@ async function handleApplyOwnedSettings() {
   const msgEl = document.getElementById('owned-settings-msg');
 
   if (isNaN(resLimit) || resLimit < 1 || resLimit > 100) {
-    if (msgEl) msgEl.textContent = 'Lỗi: resource_limit phải nằm trong khoảng 1..100';
+    if (msgEl) msgEl.textContent = dashboardText("Resource limit must be between 1 and 100.", 'Lỗi: resource_limit phải nằm trong khoảng 1..100');
     return;
   }
   if (isNaN(graphLimit) || graphLimit < 1 || graphLimit > 200) {
-    if (msgEl) msgEl.textContent = 'Lỗi: graph_limit phải nằm trong khoảng 1..200';
+    if (msgEl) msgEl.textContent = dashboardText("Graph limit must be between 1 and 200.", 'Lỗi: graph_limit phải nằm trong khoảng 1..200');
     return;
   }
   if (!['all', 'native', 'docker'].includes(routingSource)) {
-    if (msgEl) msgEl.textContent = 'Lỗi: routing_source phải là all, native, hoặc docker';
+    if (msgEl) msgEl.textContent = dashboardText("Routing source must be all, native, or docker.", 'Lỗi: routing_source phải là all, native, hoặc docker');
     return;
   }
 
@@ -3331,7 +3015,7 @@ async function handleApplyOwnedSettings() {
   };
 
   try {
-    if (msgEl) msgEl.textContent = 'Đang lập kế hoạch preview...';
+    if (msgEl) msgEl.textContent = dashboardText("Preparing settings preview…", 'Đang lập kế hoạch preview...');
     const resp = await apiFetch('operations/preview', {
       method: 'POST',
       body: payload
@@ -3339,7 +3023,7 @@ async function handleApplyOwnedSettings() {
     if (msgEl) msgEl.textContent = '';
     openModalWithPlan(resp.data, 'config/settings');
   } catch (err) {
-    if (msgEl) msgEl.textContent = `Lỗi preview config: ${err.message}`;
+    if (msgEl) msgEl.textContent = `${dashboardText("Could not preview settings: ", "Lỗi preview config: ")}${err.message}`;
   }
 }
 
@@ -3349,7 +3033,7 @@ async function handleRollbackOwnedSettings() {
   const msgEl = document.getElementById('owned-settings-msg');
 
   if (!version) {
-    if (msgEl) msgEl.textContent = 'Vui lòng chọn một bản sao lưu để khôi phục.';
+    if (msgEl) msgEl.textContent = dashboardText("Select a backup to restore.", 'Vui lòng chọn một bản sao lưu để khôi phục.');
     return;
   }
 
@@ -3362,7 +3046,7 @@ async function handleRollbackOwnedSettings() {
   };
 
   try {
-    if (msgEl) msgEl.textContent = 'Đang lập kế hoạch rollback preview...';
+    if (msgEl) msgEl.textContent = dashboardText("Preparing rollback preview…", 'Đang lập kế hoạch rollback preview...');
     const resp = await apiFetch('operations/preview', {
       method: 'POST',
       body: payload
@@ -3370,7 +3054,7 @@ async function handleRollbackOwnedSettings() {
     if (msgEl) msgEl.textContent = '';
     openModalWithPlan(resp.data, `config/rollback (${version.slice(0, 10)}…)`);
   } catch (err) {
-    if (msgEl) msgEl.textContent = `Lỗi rollback preview: ${err.message}`;
+    if (msgEl) msgEl.textContent = `${dashboardText("Could not preview rollback: ", "Lỗi rollback preview: ")}${err.message}`;
   }
 }
 
@@ -3389,7 +3073,7 @@ async function handleCreateSourceSnapshot() {
     });
     openModalWithPlan(resp.data, 'config/source-snapshot');
   } catch (err) {
-    showGlobalAlert(`Lỗi snapshot preview: ${err.message}`);
+    showGlobalAlert(`${dashboardText("Could not preview snapshot: ", "Lỗi snapshot preview: ")}${err.message}`);
   }
 }
 
@@ -3398,12 +3082,12 @@ async function initiateCatalogRevision(id, kind) {
     const resp = await apiFetch(`resources/${encodeURIComponent(id)}?kind=${encodeURIComponent(kind)}`);
     const item = resp.data?.item;
     if (!item) {
-      showGlobalAlert(`Không tìm thấy tài nguyên ${id} để sửa đổi.`);
+      showGlobalAlert(`${dashboardText("Could not find resource ", "Không tìm thấy tài nguyên ")}${id}${dashboardText(" to revise.", " để sửa đổi.")}`);
       return;
     }
     openQuarantineModalWithRevision(item);
   } catch (err) {
-    showGlobalAlert(`Lỗi tải chi tiết tài nguyên: ${err.message}`);
+    showGlobalAlert(`${dashboardText("Could not load resource details: ", "Lỗi tải chi tiết tài nguyên: ")}${err.message}`);
   }
 }
 
@@ -3428,7 +3112,7 @@ async function openQuarantineModalWithUpdate(qItem) {
     const resp = await apiFetch(`resources/${encodeURIComponent(qItem.name)}?kind=${encodeURIComponent(qItem.kind)}&source=quarantine`);
     const item = resp.data?.item;
     if (!item) {
-      showGlobalAlert('Không tìm thấy tài nguyên trong quarantine để sửa.');
+      showGlobalAlert(dashboardText("Could not find the resource in quarantine.", 'Không tìm thấy tài nguyên trong quarantine để sửa.'));
       return;
     }
     resetQuarantineModal();
@@ -3442,7 +3126,7 @@ async function openQuarantineModalWithUpdate(qItem) {
     contentEl.dispatchEvent(new Event('input'));
     openModal();
   } catch (err) {
-    showGlobalAlert(`Lỗi tải dữ liệu quarantine: ${err.message}`);
+    showGlobalAlert(`${dashboardText("Could not load quarantine: ", "Lỗi tải dữ liệu quarantine: ")}${err.message}`);
   }
 }
 
@@ -3511,7 +3195,7 @@ function setupQuarantineModal() {
   if (contentArea && contentBytesEl) {
     contentArea.addEventListener('input', () => {
       const bytes = new TextEncoder().encode(contentArea.value).length;
-      contentBytesEl.textContent = bytes.toLocaleString('vi-VN');
+      contentBytesEl.textContent = bytes.toLocaleString(dashboardLocale());
       if (bytes > 262144) {
         contentBytesEl.classList.add('text-danger');
       } else {
@@ -3533,19 +3217,19 @@ function setupQuarantineModal() {
         versionGroup.hidden = true;
         contentGroup.hidden = false;
         expectedShaInput.value = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
-        hintEl.textContent = 'Nhập mới tài nguyên chưa từng tồn tại vào quarantine.';
+        hintEl.textContent = dashboardText("Import a new resource into quarantine.", 'Nhập mới tài nguyên chưa từng tồn tại vào quarantine.');
       } else if (op === 'resource.revise') {
         versionGroup.hidden = true;
         contentGroup.hidden = false;
-        hintEl.textContent = 'Tạo hoặc cập nhật bản sửa đổi cách ly cho tài nguyên catalog có sẵn.';
+        hintEl.textContent = dashboardText("Create or update a quarantined revision of an existing catalog resource.", 'Tạo hoặc cập nhật bản sửa đổi cách ly cho tài nguyên catalog có sẵn.');
       } else if (op === 'resource.update') {
         versionGroup.hidden = true;
         contentGroup.hidden = false;
-        hintEl.textContent = 'Cập nhật tài nguyên đang có trong quarantine. Cần expected_sha256 khớp với bản ghi hiện tại.';
+        hintEl.textContent = dashboardText("Update an existing quarantined resource. The expected_sha256 must match the current record.", 'Cập nhật tài nguyên đang có trong quarantine. Cần expected_sha256 khớp với bản ghi hiện tại.');
       } else if (op === 'resource.rollback') {
         versionGroup.hidden = false;
         contentGroup.hidden = true;
-        hintEl.textContent = 'Khôi phục bản sao lưu cũ theo version hash trong thư mục versions.';
+        hintEl.textContent = dashboardText("Restore a previous backup by version hash from the versions directory.", 'Khôi phục bản sao lưu cũ theo version hash trong thư mục versions.');
       }
     });
   }
@@ -3565,13 +3249,13 @@ function setupQuarantineModal() {
       const catalogSourceStr = document.getElementById('op-catalog-source').value;
 
       if (!name) {
-        errBox.textContent = 'Vui lòng nhập tên tài nguyên hợp lệ.';
+        errBox.textContent = dashboardText("Enter a valid resource name.", 'Vui lòng nhập tên tài nguyên hợp lệ.');
         errBox.hidden = false;
         return;
       }
 
       if (op !== 'resource.rollback' && !content) {
-        errBox.textContent = 'Nội dung tài nguyên không được để trống.';
+        errBox.textContent = dashboardText("Resource content cannot be empty.", 'Nội dung tài nguyên không được để trống.');
         errBox.hidden = false;
         return;
       }
@@ -3599,7 +3283,7 @@ function setupQuarantineModal() {
       }
 
       previewBtn.disabled = true;
-      previewBtn.textContent = 'Đang xử lý preview...';
+      previewBtn.textContent = dashboardText("Preparing preview…", 'Đang xử lý preview...');
 
       try {
         const resp = await apiFetch('/api/v1/operations/preview', {
@@ -3614,9 +3298,9 @@ function setupQuarantineModal() {
         // Populate step 2
         document.getElementById('plan-id-display').textContent = plan.plan_id;
         document.getElementById('plan-target-display').textContent = `${kind}/${name}`;
-        document.getElementById('plan-backup-display').textContent = plan.backup || 'Không có (nhập mới)';
+        document.getElementById('plan-backup-display').textContent = plan.backup || dashboardText("None (new import)", 'Không có (nhập mới)');
         document.getElementById('plan-changes-preview').textContent = JSON.stringify(plan.changes, null, 2);
-        document.getElementById('plan-ownership-display').textContent = 'Phạm vi: ' + plan.ownership;
+        document.getElementById('plan-ownership-display').textContent = dashboardText("Scope: ", 'Phạm vi: ') + plan.ownership;
 
         // Timer countdown
         startPlanExpiryTimer(state.modal.planExpiry);
@@ -3629,11 +3313,11 @@ function setupQuarantineModal() {
         confirmCheck.checked = false;
         applyBtn.disabled = true;
       } catch (err) {
-        errBox.textContent = `Lỗi preview: ${err.message}`;
+        errBox.textContent = `${dashboardText("Could not prepare preview: ", "Lỗi preview: ")}${err.message}`;
         errBox.hidden = false;
       } finally {
         previewBtn.disabled = false;
-        previewBtn.textContent = 'Xem trước Kế hoạch (Preview)';
+        previewBtn.textContent = dashboardText("Preview plan", 'Xem trước Kế hoạch (Preview)');
       }
     });
   }
@@ -3662,7 +3346,7 @@ function setupQuarantineModal() {
       const errBox = document.getElementById('modal-step-2-error');
       errBox.hidden = true;
       applyBtn.disabled = true;
-      applyBtn.textContent = 'Đang thực thi apply...';
+      applyBtn.textContent = dashboardText("Applying plan…", 'Đang thực thi apply...');
 
       try {
         const resp = await apiFetch('/api/v1/operations/apply', {
@@ -3675,23 +3359,23 @@ function setupQuarantineModal() {
 
         const result = resp.data || {};
         document.getElementById('modal-success-msg').textContent = result.status === 'dashboard-owned' ?
-          'Đã lưu trạng thái dashboard. Cấu hình host không thay đổi.' :
-          'Đã lưu bản ghi trong vùng cách ly; chưa kích hoạt tài nguyên trong Hub.';
+          dashboardText("Dashboard state saved. Host configuration remains unchanged.", 'Đã lưu trạng thái dashboard. Cấu hình host không thay đổi.') :
+          dashboardText("Record saved to quarantine. Activation remains pending in the Hub.", 'Đã lưu bản ghi trong vùng cách ly; chưa kích hoạt tài nguyên trong Hub.');
         if (state.modal.timerId) clearInterval(state.modal.timerId);
 
         // Switch to Step 3
         document.getElementById('applied-sha-display').textContent = result.sha256 || '—';
-        document.getElementById('applied-backup-display').textContent = result.backup || 'Không có bản sao lưu trước đó';
+        document.getElementById('applied-backup-display').textContent = result.backup || dashboardText("No previous backup", 'Không có bản sao lưu trước đó');
 
         document.getElementById('modal-step-2').hidden = true;
         document.getElementById('modal-step-3').hidden = false;
         document.getElementById('modal-footer-step-2').hidden = true;
         document.getElementById('modal-footer-step-3').hidden = false;
       } catch (err) {
-        errBox.textContent = `Lỗi thực thi apply: ${err.message}`;
+        errBox.textContent = `${dashboardText("Could not apply plan: ", "Lỗi thực thi apply: ")}${err.message}`;
         errBox.hidden = false;
         applyBtn.disabled = false;
-        applyBtn.textContent = 'Xác nhận Thực thi (Apply)';
+        applyBtn.textContent = dashboardText("Confirm and apply", 'Xác nhận Thực thi (Apply)');
       }
     });
   }
@@ -3706,11 +3390,11 @@ function startPlanExpiryTimer(seconds) {
     remaining--;
     if (remaining <= 0) {
       clearInterval(state.modal.timerId);
-      if (display) display.textContent = 'Kế hoạch đã hết hạn!';
+      if (display) display.textContent = dashboardText("This plan has expired.", 'Kế hoạch đã hết hạn!');
       const applyBtn = document.getElementById('modal-apply-btn');
       if (applyBtn) applyBtn.disabled = true;
     } else {
-      if (display) display.textContent = `${remaining} giây`;
+      if (display) display.textContent = `${remaining}${dashboardText(" seconds", " giây")}`;
     }
   }, 1000);
 }
@@ -4079,11 +3763,10 @@ function stopAutoRefresh() {
 async function init() {
   setupNavigation();
   setupEventListeners();
-  setupGraphControls();
+  graphExplorer.setup(apiFetch, openGraphNodeInspector);
   setupInspector();
   setupQuarantineModal();
   setupQualityWorkspace();
-  setupMobileNavigation();
   document.getElementById('open-batch-intake').addEventListener('click', () => {
     switchView('config');
     document.getElementById('intake-panel').scrollIntoView({behavior:'smooth',block:'start'});
@@ -4098,7 +3781,7 @@ async function init() {
         state.csrfToken = configResp.data.csrf_token;
         const badge = document.getElementById('csrf-badge');
         if (badge) {
-          badge.textContent = 'CSRF: Sẵn sàng';
+          badge.textContent = dashboardText('CSRF: Ready', 'CSRF: Sẵn sàng');
           badge.className = 'badge badge-alive';
         }
       }
@@ -4128,4 +3811,19 @@ async function init() {
   startAutoRefresh();
 }
 
+window.addEventListener('skillhub:languagechange', () => {
+  const dot = document.getElementById('connection-dot');
+  const label = document.getElementById('connection-text');
+  if (label && dot?.classList.contains('status-alive')) {
+    label.textContent = dashboardText('Dashboard connected', 'Đã kết nối dashboard');
+  }
+  const badge = document.getElementById('csrf-badge');
+  if (badge && state.csrfToken && badge.classList.contains('badge-alive')) {
+    badge.textContent = dashboardText('CSRF: Ready', 'CSRF: Sẵn sàng');
+  }
+  redrawInspector?.();
+  if (!state.isRefreshing && latestViewReads.has(state.currentView)) {
+    void loadViewData(state.currentView, true);
+  }
+});
 window.addEventListener('DOMContentLoaded', init);

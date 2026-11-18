@@ -996,10 +996,21 @@ class Sources:
         return hashlib.sha256(raw).hexdigest()
     def graph(self,q):
         path=self.app.project/GRAPH
+        graph_sources=[self.source('capability-graph-projection',path)]
         try: raw=read_json(path,24000000)
         except OSError:
-            page=self.app.resources({'limit':'100'})
-            raw={'nodes':{r['kind']+':'+r['id']:{'t':r['kind'],'n':r['name'],'ch':r['version']} for r in page['items']},'edges':[{'s':r['kind']+':'+r['id'],'d':r['kind']+':'+str(r['canonical_name']),'r':'alias_of','src':'catalog canonical_name'} for r in page['items'] if r['id']!=r['canonical_name']]}
+            # Browse the catalog index even when no prebuilt graph projection was mounted.
+            raw={'nodes':{},'edges':[]}
+            with closing(connect_ro(self.app.catalog)) as con:
+                for kind,table in (('skill','skills'),('prompt','prompts')):
+                    rows=con.execute(f'SELECT name,body_sha256,canonical_name FROM {table}')
+                    for name,version,canonical in rows:
+                        label=self.clean(name)
+                        ident=kind+':'+label
+                        raw['nodes'][ident]={'t':kind,'n':label,'ch':self.clean(version) if isinstance(version,str) else version}
+                        if canonical and canonical!=name:
+                            raw['edges'].append({'s':ident,'d':kind+':'+self.clean(canonical),'r':'alias_of','src':'catalog canonical_name'})
+            graph_sources.append(self.source('catalog',self.app.catalog))
 
         all_nodes={k:{'id':k,'type':v['t'],'label':self.clean(v.get('n',k)),'status':'projected','metadata':{'version':v.get('ch'),'observed_at':v.get('obs')}} for k,v in raw.get('nodes',{}).items() if v.get('t') in ('skill','prompt','agent','mcp','project')}
         edges=[{'id':str(i),'source':e['s'],'target':e['d'],'type':e['r'],'evidence':{'source':e.get('src'),'class':e.get('class'),'projection_built_at':raw.get('built_at')}} for i,e in enumerate(raw.get('edges',[])[:100000]) if e.get('s') in all_nodes and e.get('d') in all_nodes]
@@ -1014,17 +1025,20 @@ class Sources:
         selected=q.get('node_id'); types=q.get('type','all'); query=q.get('q','').lower()[:200]
         limit=max(1,min(200,int(q.get('limit',100))))
         if selected:
-            chosen={selected} if selected in all_nodes else set()
+            candidates=[selected] if selected in all_nodes else []
+            chosen=set(candidates)
+            frontier=chosen.copy()
             for _ in range(max(0,min(3,int(q.get('depth',1))))):
-                found={e[k] for e in edges if e['source'] in chosen or e['target'] in chosen for k in ('source','target')}
-                chosen.update(sorted(found)[:200])
-            candidates=[k for k in sorted(chosen) if k in all_nodes]
+                frontier={e[k] for e in edges if e['source'] in frontier or e['target'] in frontier for k in ('source','target')} - chosen
+                if not frontier: break
+                chosen.update(frontier)
+                candidates.extend(sorted(frontier))
         else:
             # Prefer evidenced dependencies so initial graph has meaningful connected nodes.
             candidates=list(dict.fromkeys([e[k] for e in edges for k in ('source','target')]+sorted(all_nodes)))
         candidates=[k for k in candidates if (types=='all' or all_nodes[k]['type']==types) and query in all_nodes[k]['label'].lower()]
         chosen=set(candidates[:limit]); visible=[e for e in edges if e['source'] in chosen and e['target'] in chosen][:500]
-        return {'nodes':[all_nodes[k] for k in candidates[:limit]],'edges':visible,'truncated':len(candidates)>limit or len(visible)==500,'total':len(candidates)},[self.source('capability-graph-projection',path)]+agent_sources+mcp_sources
+        return {'nodes':[all_nodes[k] for k in candidates[:limit]],'edges':visible,'truncated':len(candidates)>limit or len(visible)==500,'total':len(candidates)},graph_sources+agent_sources+mcp_sources
     def _load_quality_dispositions(self):
         try:
             path=self.app.owned_target('quality-dispositions')

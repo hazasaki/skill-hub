@@ -12,7 +12,18 @@ With model routing configured, `route_task` returns a menu of matching resources
 
 ## Dashboard preview
 
-![Dashboard inspecting the bundled review-checklist skill](docs/assets/dashboard.png)
+![Skill Hub dashboard overview showing catalog counts and source availability](docs/assets/dashboard-overview.png)
+
+![Capability graph with a selected resource and its relationships](docs/assets/dashboard-capabilities.png)
+
+The overview uses the bundled public Markdown catalog. The graph adds a sample projection to illustrate relationship evidence.
+
+
+The Dashboard starts in English and follows your system appearance. You can
+switch to Vietnamese or select Light or Dark. The capabilities view lets you
+find a resource by name, focus its neighbors and read the evidence for each
+relationship. Use the list view to explore relationships with the keyboard.
+[Dashboard guide](src/hub-dashboard/static/README.md)
 
 ## Repository map
 
@@ -34,7 +45,11 @@ cd skill-hub
 docker compose up --build -d
 ```
 
-Open **http://127.0.0.1:8769** for the dashboard. Configure a Streamable HTTP MCP connection to **http://127.0.0.1:8765/mcp**. The first build downloads the container images and dependencies. The included example catalog runs locally without an API key.
+Open **http://127.0.0.1:8769** for the Dashboard. Configure a Streamable HTTP MCP
+connection to **http://127.0.0.1:8765/mcp**. The first build downloads the container
+images and dependencies. The included example catalog runs locally without an API
+key. Open the capabilities view to browse its resources. Graph relationships
+depend on the sources available to your installation.
 
 Try listing skills in your MCP client, then load one of the returned names with `get_skill`. For prompts, use `search_prompts` and `get_prompt`. The service health endpoint is `http://127.0.0.1:8765/health`.
 
@@ -61,7 +76,8 @@ docker compose up -d --force-recreate
 
 ## Tiếng Việt
 
-Cài Docker có Compose v2.20.0 trở lên, tải repo và chạy ba lệnh trong mục **Run locally**. Mở dashboard ở cổng **8769**, hoặc kết nối ứng dụng MCP với đường dẫn **/mcp** ở cổng **8765**. Bạn có thể thêm skill và prompt theo mẫu trong `examples/hub`, rồi chạy lại lệnh dựng catalog ở trên.
+Cài Docker có Compose v2.20.0 trở lên, tải repo và chạy ba lệnh trong mục **Run locally**. Mở dashboard ở cổng **8769**, hoặc kết nối ứng dụng MCP với đường dẫn **/mcp** ở cổng **8765**. Bạn có thể thêm skill và prompt theo mẫu trong `examples/hub`, rồi chạy lại lệnh dựng catalog ở trên. Chọn **Tiếng Việt** trong phần ngôn ngữ của Dashboard.
+Chọn **Sáng**, **Tối** hoặc **Hệ thống** để đổi giao diện.
 
 ## Credits
 
