@@ -9,7 +9,7 @@
 
 const dashboardText = (en, vi) => window.skillHubText?.(en, vi) ?? en;
 const dashboardLocale = () => dashboardText('en-US', 'vi-VN');
-const dashboardPage = page => dashboardText(`Page ${page}`, dashboardPage(page));
+const dashboardPage = page => dashboardText(`Page ${page}`, `Trang ${page}`);
 
 // Keep only the latest read for each view, so switching languages never contacts a provider.
 const latestViewReads = new Map();
