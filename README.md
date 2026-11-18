@@ -16,7 +16,7 @@ With model routing configured, `route_task` returns a menu of matching resources
 
 ![Capability graph with a selected resource and its relationships](docs/assets/dashboard-capabilities.png)
 
-The overview uses the bundled public Markdown catalog. The graph adds a sample projection to illustrate relationship evidence.
+These Dark screenshots use the bundled public examples. The graph adds a sample projection to illustrate relationship evidence.
 
 
 The Dashboard starts in English and follows your system appearance. You can

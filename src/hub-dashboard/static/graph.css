@@ -2,7 +2,10 @@
 #view-graph {
   --graph-alias: var(--accent);
   --graph-install: var(--success-text);
+  --graph-inactive-edge-opacity: 0.54;
 }
+
+:root[data-theme="light"] #view-graph { --graph-inactive-edge-opacity: 0.32; }
 
 .graph-toolbar {
   display: flex;
@@ -131,7 +134,7 @@
 }
 
 #graph-edges-group.has-selection .graph-map-edge {
-  opacity: 0.32;
+  opacity: var(--graph-inactive-edge-opacity);
 }
 
 #graph-edges-group.has-selection .graph-map-edge.is-incident {

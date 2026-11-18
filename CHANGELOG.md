@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Package an animated React sidebar with keyboard and mobile drawer controls.
+- Use black surfaces and charcoal panels in Dark and System-dark.
+
 - The sidebar collapses on desktop and opens as a drawer on narrow screens.
 - The Dashboard opens in English and supports Vietnamese. Light, Dark and System
   themes and language are saved in the browser.

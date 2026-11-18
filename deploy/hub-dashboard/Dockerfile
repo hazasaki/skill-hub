@@ -3,11 +3,20 @@ WORKDIR /build
 COPY src/host-rust/ /build/
 RUN cargo test --offline && cargo build --release --offline
 
+FROM node:22.23.5-bookworm-slim@sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba3ab21ee AS frontend-build
+WORKDIR /build/frontend
+COPY src/hub-dashboard/frontend/package.json src/hub-dashboard/frontend/package-lock.json ./
+RUN npm ci --ignore-scripts --no-audit --no-fund
+COPY src/hub-dashboard/frontend/ ./
+RUN npm run build
+
 FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
 WORKDIR /app
 RUN pip install --no-cache-dir PyYAML==6.0.3
 COPY --from=rust-build /build/target/release/skill_hub_host /app/skill_hub_host
-COPY src/hub-dashboard/ /app/
+COPY src/hub-dashboard/*.py /app/
+COPY src/hub-dashboard/static/ /app/static/
+COPY --from=frontend-build /build/static/sidebar.bundle.* /app/static/
 COPY deploy/skill-hub/app/ /indexer/
 COPY deploy/hub-dashboard/container_entry.py /app/container_entry.py
 RUN mkdir /state && chown 10001:10001 /state

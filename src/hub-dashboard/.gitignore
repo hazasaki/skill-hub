@@ -1,2 +1,4 @@
 __pycache__/
 tmp*/
+/frontend/node_modules/
+/static/sidebar.bundle.*

@@ -61,6 +61,23 @@ python -B -m unittest discover -s deploy/hub-dashboard -q
 node src/hub-dashboard/test_intake_ui.js
 ```
 
+### Build the sidebar for local development
+
+The Dashboard container builds the React and TypeScript sidebar automatically.
+When starting the Python Dashboard directly from a source checkout, build the
+bundled sidebar first. Run these commands from the repository root:
+
+```sh
+cd src/hub-dashboard/frontend
+npm ci --ignore-scripts --no-audit --no-fund
+npm run build
+```
+
+Use Node.js 22 or newer. The build emits local JavaScript and scoped Tailwind
+CSS under `src/hub-dashboard/static`. The component lives in
+`frontend/components/ui/animated-sidebar.tsx`. It uses the project's theme
+tokens. The build also emits the license notices for bundled libraries.
+
 ### Routing compatibility
 
 The bundled keyless catalog supports browsing, search and resource details.

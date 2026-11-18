@@ -1,0 +1,23 @@
+{
+  "name": "skill-hub-dashboard-sidebar",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && node build.mjs && tailwindcss -i sidebar.css -o ../static/sidebar.bundle.css --minify"
+  },
+  "dependencies": {
+    "lucide-react": "1.75.0",
+    "motion": "14.14.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "4.3.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "esbuild": "0.28.2",
+    "tailwindcss": "4.3.5",
+    "typescript": "5.9.3"
+  }
+}

@@ -2,6 +2,8 @@
   color-scheme: light;
   --bg: #f5f7fb;
   --panel: #ffffff;
+  --sidebar-bg: var(--panel);
+  --navigation-scrim: #070d1699;
   --card: #ffffff;
   --card-surface-2: #edf2f8;
   --card-hover: #e6edf7;
@@ -32,7 +34,10 @@
   --depth-shadow: 0 1px 2px #27364c12, 0 9px 32px #27364c0a;
 }
 
+:root[data-theme="dark"] :is(input, textarea)::placeholder { color: var(--muted); opacity: 0.86; }
+
 .app-layout { overflow: clip; }
+#dashboard-sidebar-root { display: contents; }
 .sidebar {
   position: sticky;
   top: 0;
@@ -40,7 +45,7 @@
   height: 100vh;
   height: 100dvh;
   width: 238px;
-  background: var(--panel);
+  background: var(--sidebar-bg);
   transition: width 220ms cubic-bezier(.22, .8, .24, 1);
 }
 .brand { min-height: 70px; padding: 14px 16px; }
@@ -54,7 +59,7 @@
 .nav-item.active { border-color: var(--line-light); box-shadow: none; }
 .nav-item:hover { background: var(--card-hover); }
 .nav-item.active:hover { background: var(--accent-bg); }
-.sidebar-footer { background: var(--panel); overflow: hidden; }
+.sidebar-footer { background: var(--sidebar-bg); overflow: hidden; }
 .rail-collapsed .sidebar { width: 65px; }
 .rail-collapsed .nav-item { justify-content: center; padding-inline: 0; }
 .rail-collapsed .nav-group + .nav-group { border-top: 1px solid var(--line); padding-top: 8px; }
@@ -100,7 +105,7 @@
     position: fixed;
     inset: 0;
     z-index: 107;
-    background: #070d1699;
+    background: var(--navigation-scrim, #0009);
     opacity: 0;
     visibility: hidden;
     transition: opacity 220ms ease, visibility 220ms;

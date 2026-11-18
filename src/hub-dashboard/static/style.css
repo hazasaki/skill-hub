@@ -1,29 +1,30 @@
 /* ==========================================================================
    Skill Hub Management Console Stylesheet (style.css)
-   Browser-native CSS, no external dependencies, dark mode palette
+   Shared layout and theme tokens
    ========================================================================== */
 
 :root {
   color-scheme: dark;
-  --bg: #090d16;
-  --panel: #0d131f;
-  --card: #111827;
-  --card-surface-2: #161f33;
-  --card-hover: #172138;
-  --line: #1f2d42;
-  --line-light: #2d415e;
-  --text: #e4edf7;
-  --muted: #9baec4;
+  --bg: #0a0a0a;
+  --sidebar-bg: #080808;
+  --panel: #161616;
+  --card: #1b1b1b;
+  --card-surface-2: #232323;
+  --card-hover: #2a2a2a;
+  --line: #333333;
+  --line-light: #4b4b4b;
+  --text: #f4f4f4;
+  --muted: #b8b8b8;
   --alive: #57dfaa;
   --blocked: #ff7f88;
   --partial: #f7c66c;
   --stale: #f7c66c;
-  --unknown: #94a6bd;
+  --unknown: #b8b8b8;
   --idle: #8bbdff;
   --accent: #60a5fa;
   --on-accent: #0b1523;
   --accent-hover: #93c5fd;
-  --accent-bg: #172554;
+  --accent-bg: #242424;
   --danger-bg: #301d2a;
   --danger-border: #7d404a;
   --danger-text: #ffd1d5;

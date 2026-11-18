@@ -299,38 +299,18 @@ function hideGlobalAlert() {
 // Navigation Management
 // ============================================================================
 
-function setupNavigation() {
-  const navLinks = document.querySelectorAll('.nav-item');
-  navLinks.forEach(link => {
-    link.addEventListener('click', (e) => {
-      e.preventDefault();
-      const view = link.getAttribute('data-view');
-      switchView(view);
-    });
-  });
-}
-
 function switchView(viewName) {
   if (state.currentView === viewName && document.getElementById(`view-${viewName}`) && !document.getElementById(`view-${viewName}`).hidden) {
     return;
   }
 
   state.currentView = viewName;
-  const tabs = [...document.querySelectorAll('.nav-item')];
-  const selectedTab = tabs.find(link => link.getAttribute('data-view') === viewName);
-  if (selectedTab) {
-    const labelEl = selectedTab.querySelector('.nav-label');
-    const titleText = labelEl ? labelEl.textContent.trim() : selectedTab.textContent.replace(/^\s*\d+\s*/, '').trim();
-    document.getElementById('view-title').textContent = titleText;
-    document.getElementById('view-eyebrow').textContent = window.skillHubText('Dashboard', 'Bảng điều khiển');
+  window.skillHubSidebar?.setView(viewName);
+  const label = document.getElementById(`tab-${viewName}`)?.querySelector('.nav-label');
+  if (label) {
+    document.getElementById('view-title').textContent = label.textContent;
+    document.getElementById('view-eyebrow').textContent = dashboardText('Dashboard', 'Bảng điều khiển');
   }
-
-  // Update nav tabs aria-selected
-  document.querySelectorAll('.nav-item').forEach(link => {
-    const isTarget = link.getAttribute('data-view') === viewName;
-    link.classList.toggle('active', isTarget);
-    link.setAttribute('aria-selected', isTarget ? 'true' : 'false');
-  });
 
   // Switch view panels
   document.querySelectorAll('.view-panel').forEach(panel => {
@@ -3714,7 +3694,6 @@ function stopAutoRefresh() {
 // ============================================================================
 
 async function init() {
-  setupNavigation();
   setupEventListeners();
   graphExplorer.setup(apiFetch, openGraphNodeInspector);
   setupInspector();
