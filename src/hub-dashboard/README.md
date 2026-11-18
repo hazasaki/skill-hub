@@ -16,6 +16,28 @@ No package install, model call, embedding, source execution or live config cutov
 Do not expose through a public proxy: localhost plus Host/Origin checks is the
 intended security boundary, not multi-user authentication.
 
+## Router Studio
+
+The Overview launcher fills the task and opens Router Studio. Use **Run routing**
+to submit it to the configured scorer. Model routing may incur charges.
+TEMPR and metadata are retrieval modes. The result shows the requested mode and
+the reported retrieval method, scoring rounds, and per-kind thresholds.
+Semantic search only queries retrieval and does not score or load resources.
+
+The Hub menu shows recommendations. The checkboxes start unchecked, and
+**Choose none (0)** sends no load request. To load a resource with dependencies,
+select those dependencies explicitly or supply previously loaded identities in
+the optional context. **Load selected** calls `POST /api/v1/load_resource_choice`
+with the qualified ID, raw SHA-256, and the skill bundle SHA-256 when applicable.
+Only a matching verified receipt updates the loaded count and **Use in
+follow-up**. The follow-up control copies identity pins and does not submit a
+request. A refused or stale response contributes no identities.
+
+Reported partial results retain the stop reason and round evidence. The
+requested model alias and the provider-reported resolved model are shown
+separately. Missing provider, GPU, and engine observations display as unknown.
+Timing and cost describe the response and are not billing records.
+
 ## API contract
 
 All successful API responses use schema `skill-hub.dashboard.v1`, observed_at,
@@ -24,6 +46,7 @@ use HTTP 400/403/404/409 and `{error:...}` without echoing input or exceptions.
 GET `/api/v1/{overview,resources,graph,routing,agents,integrations,library,telemetry,quality,config}`.
 GET `/api/v1/semantic?q={query}&limit={1..50}` for fast dGPU/bounded semantic retrieval.
 POST `/api/v1/route_task` for interactive `route_task` testing (requires CSRF token, Origin header, and JSON body `{"state": "...", "retrieval_mode": "tempr"|"metadata", "include_graph": bool, "task_id": "..."}`).
+
 Resource detail `/api/v1/resources/{encoded-id}?kind=skill|prompt`.
 Lists use items,total,offset,limit; q is a literal FTS phrase over indexed resource
 body/name/description/tags, domain is exact canonical category, kind is skill,

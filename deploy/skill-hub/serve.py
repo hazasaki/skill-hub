@@ -197,7 +197,9 @@ async def semantic_response(query, limit):
         except (ValueError, TypeError):
             limit = 10
 
-        gpu_res = bool(current_warmup.get('gpu_resident', False))
+        gpu_res = current_warmup.get('gpu_resident')
+        if type(gpu_res) is not bool:
+            gpu_res = None
 
         if not query:
             return JSONResponse({
@@ -333,7 +335,9 @@ async def route_task_endpoint(request):
         task_id = str(body.get('task_id') or '').strip()[:120] or None
 
         current_warmup = _maybe_schedule_warmup_retry()
-        gpu_resident = bool(current_warmup.get('gpu_resident', False))
+        gpu_resident = current_warmup.get('gpu_resident')
+        if type(gpu_resident) is not bool:
+            gpu_resident = None
 
         sem = _get_route_semaphore()
         try:

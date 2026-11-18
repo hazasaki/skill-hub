@@ -370,6 +370,35 @@ class ServeSemanticEndpointTests(unittest.TestCase):
 
         asyncio.run(run_async_test())
 
+    def test_warmup_without_semantic_config_keeps_gpu_residency_unknown(self):
+        import retrieval_fusion
+
+        with patch.object(serve.skill_mcp, 'LIVE_TEMPR_CONFIG', ''), \
+             patch.dict(os.environ, {retrieval_fusion.CONFIG_ENV: ''}):
+            status = serve.skill_mcp._warm_runtime_caches(HUB)
+        self.assertFalse(status['tempr_configured'])
+        self.assertIsNone(status['gpu_resident'])
+
+    def test_http_routes_do_not_infer_gpu_residency(self):
+        async def run_test():
+            transport = httpx.ASGITransport(app=self.app)
+            async with httpx.AsyncClient(transport=transport, base_url='http://127.0.0.1:8765') as client:
+                for warmup, expected in (({'ok': True}, None),
+                                         ({'ok': True, 'gpu_resident': 'false'}, None),
+                                         ({'ok': True, 'gpu_resident': False}, False)):
+                    with self.subTest(warmup=warmup), \
+                         patch.object(serve, '_maybe_schedule_warmup_retry', return_value=warmup), \
+                         patch.dict(serve.server._tool_manager._tools, {
+                             'route_task': MagicMock(fn=lambda **kw: json.dumps({'outcome': 'SELECTED'}))
+                         }):
+                        semantic = await client.get('/semantic')
+                        self.assertEqual(semantic.status_code, 200)
+                        self.assertIs(semantic.json()['gpu_resident'], expected)
+                        route = await client.post('/route_task', json={'state': 'A controlled request'})
+                        self.assertEqual(route.status_code, 200)
+                        self.assertIs(route.json()['gpu_resident'], expected)
+        asyncio.run(run_test())
+
     def test_route_task_200_ok(self):
         """POST /route_task returns 200 with status ok and all router payload fields merged."""
         mock_route_result = {
