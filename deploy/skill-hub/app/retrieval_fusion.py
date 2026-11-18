@@ -388,120 +388,25 @@ def run_engines(engines, text, entries, *, limit, deadline, config):
 
 # ------------------------------------------------------------------ fusion
 
-def _group_getter(entries, group_map):
-    """Map every eligible id to its verified equivalence group, or to itself."""
-    by_id = {}
-    for entry in entries or ():
-        if not isinstance(entry, dict):
-            continue
-        identifier = entry.get('id')
-        if not identifier and entry.get('resource_id') and entry.get('type'):
-            identifier = f'{entry["type"]}:{entry["resource_id"]}'
-        if not identifier:
-            continue
-        group = entry.get('equivalence_group_id') or (group_map or {}).get(identifier)
-        by_id[str(identifier)] = str(group) if group else str(identifier)
-    return by_id
-
-
-def collapse_engine_hits(result, group_of, eligible):
-    """One position per group per engine, best rank wins, ineligible ids dropped.
-
-    This is where an alias and a second chunk stop being extra votes.
-    """
-    best = {}
-    ineligible, duplicates = 0, 0
-    for hit in result.get('hits') or ():
-        identifier = hit['id']
-        if identifier not in eligible:
-            ineligible += 1
-            continue
-        group = group_of.get(identifier, identifier)
-        current = best.get(group)
-        if current is None:
-            best[group] = {'rank': hit['rank'], 'id': identifier}
-        elif hit['rank'] < current['rank']:
-            best[group] = {'rank': hit['rank'], 'id': identifier}
-        else:
-            duplicates += 1
-    return best, {'ineligible_dropped': ineligible, 'group_duplicates_dropped': duplicates,
-                  'groups_ranked': len(best)}
-
-
 def fuse(engine_results, *, entries, weights=None, k=RRF_K, limit=CANDIDATE_LIMIT,
          skill_quota=SKILL_QUOTA, prompt_quota=PROMPT_QUOTA, group_map=None):
-    """Fuse per-engine ranks into one ordered candidate list, then spend the quota.
-
-    The returned ranking is the complete fused order over distinct groups, so a caller can
-    see what was refused by budget rather than assuming the list was everything found.
-    """
-    weights = {**DEFAULT_WEIGHTS, **(weights or {})}
-    eligible = _group_getter(entries, group_map)
-    kind_of = {}
-    for entry in entries or ():
-        if not isinstance(entry, dict):
-            continue
-        identifier = entry.get('id')
-        if identifier:
-            kind_of[str(identifier)] = entry.get('type')
-
-    scores, votes, best_rank, collapse = {}, {}, {}, {}
-    for name in ENGINES:
-        result = engine_results.get(name) or engine_result(name, 'UNAVAILABLE')
-        collapsed, stats = collapse_engine_hits(result, eligible, set(eligible))
-        collapse[name] = stats
-        if result['status'] != 'OK' or not collapsed:
-            continue
-        weight = float(weights.get(name, 1.0))
-        if weight == 0:
-            # A zero-weight engine casts no vote: temporal without time intent must not put
-            # its ranking into the fused order at score 0.
-            collapse[name] = {**stats, 'zero_weight': True}
-            continue
-        # Re-rank over groups, not over raw hit rows. Otherwise an alias or a second chunk
-        # would push a genuinely different resource one position down the engine's list even
-        # though it cast no vote itself.
-        ordered = sorted(collapsed.items(), key=lambda item: (item[1]['rank'], item[0]))
-        for position, (group, item) in enumerate(ordered, start=1):
-            scores[group] = scores.get(group, 0.0) + weight / (k + position)
-            votes.setdefault(group, []).append(name)
-            candidates = best_rank.setdefault(group, {})
-            previous = candidates.get(name)
-            if previous is None or position < previous[0]:
-                candidates[name] = (position, item['id'])
-
-    ranking = []
-    for group, score in scores.items():
-        names = votes[group]
-        # Representative: most engine confirmations, then the best rank anywhere,
-        # then the id, so the choice is reproducible for the same inputs.
-        ranked = best_rank[group]
-        representative = min(ranked.values(), key=lambda item: (item[0], item[1]))[1]
-        ranking.append({'group_id': group, 'id': representative,
-                        'score': round(score, 9), 'engines': sorted(names),
-                        'best_rank': {name: ranked[name][0] for name in sorted(ranked)}})
-    ranking.sort(key=lambda item: (-item['score'], item['id']))
-
-    skills = [row for row in ranking if kind_of.get(row['id']) != 'prompt']
-    prompts = [row for row in ranking if kind_of.get(row['id']) == 'prompt']
-    total = min(limit, len(ranking))
-    skill_take = min(len(skills), max(0, min(skill_quota, total)))
-    prompt_take = min(len(prompts), max(0, min(prompt_quota, total - skill_take)))
-    # Refill: an unused prompt slot goes to skills and vice versa instead of staying empty.
-    skill_take = min(len(skills), total - prompt_take)
-    prompt_take = min(len(prompts), total - skill_take)
-    chosen = skills[:skill_take] + prompts[:prompt_take]
-    chosen.sort(key=lambda item: (-item['score'], item['id']))
-
-    return {'ranking': ranking, 'selected': chosen,
-            'coverage': {'eligible_ids': len(eligible), 'fused_groups': len(ranking),
-                         'selected': len(chosen),
-                         'skills_selected': skill_take, 'prompts_selected': prompt_take,
-                         'quota': {'limit': limit, 'skills': skill_quota,
-                                   'prompts': prompt_quota},
-                         'group_collapse': collapse},
-            'weights': {name: weights.get(name, 1.0) for name in ENGINES},
-            'k': k}
+    """Fuse normalized retrieval ranks and enforce resource quotas in the native router."""
+    from rust_routing import Operation, decision
+    fields = ('id', 'resource_id', 'type', 'equivalence_group_id', 'content_sha256',
+              'bundle_sha256', 'risk', 'state')
+    return decision(Operation.FUSION, {
+        'entries': [{key: entry.get(key) for key in fields}
+                    for entry in entries or () if isinstance(entry, dict)],
+        'engines': {
+            name: {'status': result['status'],
+                   'hits': [{'id': hit['id'], 'rank': hit['rank']} for hit in result['hits']]}
+            for name in ENGINES
+            for result in [_normalize(engine_results.get(name), name)]
+        },
+        'weights': {**DEFAULT_WEIGHTS, **(weights or {})}, 'k': k,
+        'limit': limit, 'skill_quota': skill_quota, 'prompt_quota': prompt_quota,
+        'group_map': group_map or {},
+    })
 
 
 def fuse_candidates(text, entries, *, config=None, deadline=None, weights=None,

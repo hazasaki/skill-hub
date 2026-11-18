@@ -497,8 +497,8 @@
                 <div class="control-item mode-select-wrap">
                   <label for="route-studio-mode" class="text-xs text-muted">Chế độ thực thi:</label>
                   <select id="route-studio-mode" class="form-control">
-                    <option value="tempr" selected>route_task: TEMPR 4-Engine + Elephant</option>
-                    <option value="metadata">route_task: Metadata Ranking + Elephant</option>
+                    <option value="metadata" selected>route_task: Metadata Ranking</option>
+                    <option value="tempr">route_task: TEMPR 4-Engine</option>
                     <option value="semantic">Tìm kiếm Ngữ nghĩa nhanh (BGE-M3 dGPU, 0 phí model)</option>
                   </select>
                 </div>
@@ -516,6 +516,7 @@
                 </div>
 
                 <div class="control-item actions-wrap">
+                  <button type="button" id="btn-carry-followup-state" class="btn btn-subtle" title="Nạp danh tính tài nguyên đã tải từ lượt trước để kiểm thử follow-up" hidden>Follow-up từ lượt trước</button>
                   <button type="button" id="btn-clear-route-task" class="btn btn-subtle" title="Xóa nội dung nhập">Xóa</button>
                   <p class="quality-caption">Chạy mô hình Elephant có thể phát sinh phí. Chỉ thực hiện khi bạn chủ động bấm nút.</p>
                   <button type="button" id="btn-run-route-task" class="btn btn-primary" title="Chạy kiểm thử định tuyến ngay">

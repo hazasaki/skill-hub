@@ -760,6 +760,32 @@ class BackendTests(unittest.TestCase):
             self.assertEqual(sem_res['status'], 'ok')
             self.assertEqual(len(sem_res['data']['hits']), 1)
 
+    def test_choice_load_declines_body_changed_by_dashboard_redaction(self):
+        source = self.app.sources
+        text = 'instruction body with unicode 🧪'
+        raw = text.encode('utf-8')
+        digest = hashlib.sha256(raw).hexdigest()
+        receipt = {'body': text, 'body_raw_sha256': digest, 'body_bytes': len(raw), 'load_verified': True}
+
+        def load(pin=digest):
+            with patch('sources.http.client.HTTPConnection') as connection:
+                responses = [MagicMock(status=status) for status in (200, 202, 200)]
+                for response in responses:
+                    response.getheader.return_value = None
+                    response.read.return_value = b'{}'
+                responses[-1].read.return_value = json.dumps({
+                    'result': {'content': [{'text': json.dumps(receipt)}]},
+                }).encode()
+                connection.return_value.getresponse.side_effect = responses
+                return source.load_resource_choice('prompt:fixture', pin)
+
+        self.assertEqual(load()['body'], text)
+        self.assertTrue(load()['verified_in_client'])
+        with self.assertRaisesRegex(ValueError, 'BODY_HASH_MISMATCH'):
+            load('0' * 64)
+        with patch.object(source, 'clean', side_effect=lambda value: '[FILTERED]' if value == text else value):
+            self.assertEqual(load(), {'error': 'BODY_REDACTED'})
+
     def test_route_task_source_adapter_and_redaction(self):
         # 1. Validation errors
         with self.assertRaises(ValueError):
@@ -935,6 +961,13 @@ class BackendTests(unittest.TestCase):
             thread.join()
 
     def test_route_task_capability_reporting(self):
+        for routing, expected in (('configured', True), ('disabled', False)):
+            with patch.object(self.app.sources, 'health', return_value={
+                'status': 'observed', 'http_status': 200, 'fields': {'model_routing': routing}
+            }):
+                caps = {c['operation']: c for c in self.app.capabilities()}
+                self.assertEqual(caps['route.task']['supported'], expected)
+
         # Case 1: Backend healthy (HTTP 200 and warmup.ok == True) -> route.task supported=True
         with patch.object(self.app.sources, 'health', return_value={
             'status': 'observed', 'http_status': 200, 'fields': {'warmup': {'ok': True, 'gpu_resident': True}}

@@ -301,6 +301,9 @@ class Sources:
             body=json.loads(raw)
             if not isinstance(body,dict): raise ValueError('health response must be object')
             fields={k:self.clean(body[k]) if isinstance(body[k],str) else body[k] for k in ('status','catalog_skills','catalog_sha256','effective_catalog_sha256','broker_execution','projection_scope') if k in body and isinstance(body[k],(str,int,bool))}
+            capabilities = body.get('capabilities')
+            if isinstance(capabilities, dict) and capabilities.get('model_routing') in ('configured', 'disabled'):
+                fields['model_routing'] = capabilities['model_routing']
             publication=body.get('publication')
             if isinstance(publication,dict):
                 fields['publication']={k:publication[k] for k in ('published_skills','published_prompts') if type(publication.get(k)) is int and publication[k]>=0}
@@ -385,6 +388,45 @@ class Sources:
         clean_state = state
         if task_state is not _TASK_STATE_UNSET and task_state is not None and not isinstance(task_state, dict):
             raise ValueError('INVALID_TASK_STATE: task_state must be an object or null')
+        env_bin = os.environ.get('SKILL_HUB_HOST_BIN')
+        if env_bin:
+            if not os.path.isabs(env_bin) or os.path.islink(env_bin) or not os.path.isfile(env_bin):
+                raise ValueError('RUST_HOST_BINARY_INVALID: SKILL_HUB_HOST_BIN must be an absolute non-symlink file')
+            rust_bin = env_bin
+        else:
+            rust_bin = None
+            for cand in (
+                '/app/skill_hub_host',
+                '/usr/local/bin/skill_hub_host',
+                os.path.join(os.environ.get('LOCALAPPDATA', ''), 'SkillHub', 'bin', 'skill_hub_host.exe') if os.environ.get('LOCALAPPDATA') else None,
+                os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'host-rust', 'target', 'release', 'skill_hub_host.exe')),
+                os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'host-rust', 'target', 'release', 'skill_hub_host')),
+            ):
+                if cand and os.path.isabs(cand) and not os.path.islink(cand) and os.path.isfile(cand):
+                    rust_bin = cand
+                    break
+        if task_state is not _TASK_STATE_UNSET and task_state is not None:
+            if not rust_bin:
+                if os.path.isfile('/app/container_entry.py') or os.environ.get('SKILL_HUB_REQUIRE_RUST_HOST') == '1':
+                    raise ValueError('RUST_HOST_BINARY_MISSING: skill_hub_host binary not found')
+            else:
+                import subprocess
+                proc = subprocess.run(
+                    [rust_bin, 'normalize-task-state'],
+                    input=json.dumps({'state': clean_state, 'task_state': task_state}, ensure_ascii=False),
+                    text=True, encoding='utf-8', capture_output=True, timeout=5.0,
+                )
+                try:
+                    norm_out = json.loads(proc.stdout) if proc.stdout else None
+                except ValueError as exc:
+                    raise ValueError('RUST_HOST_MALFORMED_OUTPUT: invalid JSON from skill_hub_host') from exc
+                if not isinstance(norm_out, dict):
+                    raise ValueError('RUST_HOST_MALFORMED_OUTPUT: missing JSON object from skill_hub_host')
+                if proc.returncode == 0:
+                    if not isinstance(norm_out.get('task_state_sha256'), str):
+                        raise ValueError('INVALID_TASK_STATE: Rust normalizer missing digest')
+                elif norm_out.get('error') != 'INVALID_TASK_STATE':
+                    raise ValueError(f"RUST_HOST_NORMALIZE_FAILED: {norm_out.get('error') or proc.returncode}")
         if retrieval_mode not in ('tempr', 'metadata'):
             raise ValueError('retrieval_mode must be tempr or metadata')
 
@@ -811,6 +853,85 @@ class Sources:
             }, sources
         finally:
             con.close()
+    def load_resource_choice(self, resource_id, source_raw_sha256,
+                             loaded_skill_ids_and_versions=None, bundle_sha256=None):
+        if not isinstance(resource_id, str) or not resource_id.startswith(('skill:', 'prompt:')):
+            raise ValueError('INVALID_CHOICE_IDENTITY: resource_id must be skill:<id> or prompt:<id>')
+        if not isinstance(source_raw_sha256, str) or not re.fullmatch(r'[a-f0-9]{64}', source_raw_sha256):
+            raise ValueError('INVALID_CHOICE_IDENTITY: source_raw_sha256 must be 64-hex SHA-256')
+        if resource_id.startswith('skill:') and (not isinstance(bundle_sha256, str) or not re.fullmatch(r'[a-f0-9]{64}', bundle_sha256)):
+            raise ValueError('INVALID_CHOICE_IDENTITY: bundle_sha256 required for skill')
+        host, port, _ = HEALTH.get('skill-hub', ROUTE_TASK_TARGET)
+        con = http.client.HTTPConnection(host, port, timeout=25.0)
+        sid = None
+        try:
+            def mcp_post(msg, sid=None):
+                hdrs = {'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream'}
+                if sid:
+                    hdrs['Mcp-Session-Id'] = sid
+                con.request('POST', '/mcp', body=json.dumps(msg, ensure_ascii=False).encode('utf-8'), headers=hdrs)
+                resp = con.getresponse()
+                raw = resp.read(64 * 1024 * 1024 + 1)
+                if len(raw) > 64 * 1024 * 1024:
+                    raise ValueError('LOAD_RESPONSE_TOO_LARGE')
+                new_sid = resp.getheader('Mcp-Session-Id') or sid
+                text = raw.decode('utf-8', 'replace')
+                ctype = (resp.getheader('Content-Type') or '').lower()
+                if 'text/event-stream' in ctype:
+                    last_data = None
+                    for line in text.splitlines():
+                        if line.startswith('data:'):
+                            last_data = line[5:].strip()
+                    text = last_data or '{}'
+                return resp.status, new_sid, (json.loads(text) if text.strip() else {})
+
+            st, sid, _ = mcp_post({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize',
+                                   'params': {'protocolVersion': '2025-11-25', 'capabilities': {},
+                                              'clientInfo': {'name': 'hub-dashboard', 'version': '1.0'}}})
+            if st != 200:
+                raise ValueError(f'MCP_INIT_FAILED: HTTP {st}')
+            mcp_post({'jsonrpc': '2.0', 'method': 'notifications/initialized'}, sid=sid)
+            args = {'resource_id': resource_id, 'source_raw_sha256': source_raw_sha256}
+            if loaded_skill_ids_and_versions is not None:
+                args['loaded_skill_ids_and_versions'] = loaded_skill_ids_and_versions
+            if bundle_sha256 is not None:
+                args['bundle_sha256'] = bundle_sha256
+            st, _, rpc = mcp_post({'jsonrpc': '2.0', 'id': 2, 'method': 'tools/call',
+                                   'params': {'name': 'load_resource_choice', 'arguments': args}}, sid=sid)
+            if st != 200:
+                raise ValueError(f'MCP_CALL_FAILED: HTTP {st}')
+            content = ((rpc.get('result') or {}).get('content') or [])
+            payload_text = next((c.get('text') for c in content if isinstance(c, dict) and isinstance(c.get('text'), str)), None)
+            if not payload_text:
+                raise ValueError('MCP_EMPTY_CONTENT')
+            receipt = json.loads(payload_text)
+            if not isinstance(receipt, dict) or receipt.get('load_verified') is not True:
+                return self._sanitize(receipt)
+            body = receipt.get('body')
+            if not isinstance(body, str):
+                raise ValueError('MCP_EMPTY_CONTENT')
+            raw = body.encode('utf-8')
+            actual_sha = hashlib.sha256(raw).hexdigest()
+            if receipt.get('body_raw_sha256') != actual_sha or source_raw_sha256 != actual_sha:
+                raise ValueError('BODY_HASH_MISMATCH')
+            if receipt.get('body_bytes') != len(raw):
+                raise ValueError('BODY_SIZE_MISMATCH')
+            sanitized = self._sanitize(receipt)
+            if sanitized['body'] != body:
+                return {'error': 'BODY_REDACTED'}
+            sanitized['verified_in_client'] = True
+            return sanitized
+        finally:
+            if sid:
+                con.close()
+                try:
+                    con.request('DELETE', '/mcp', headers={'Mcp-Session-Id': sid})
+                    con.getresponse().close()
+                except (OSError, http.client.HTTPException):
+                    pass
+            con.close()
+
+
     def agents(self,q):
         if self.native_snapshot:
             items=self.snapshot_items('agents',('id','name','role','model','runtime','status','skills','mcp','permissions','updated_at','source','loaded','mcp_binding'))

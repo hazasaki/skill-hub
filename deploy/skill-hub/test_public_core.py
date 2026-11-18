@@ -77,13 +77,16 @@ class PublicCoreTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rows['results'][0]['name'], 'custom-skill')
 
     async def test_health_is_capability_specific_and_fails_for_corrupt_catalog(self):
-        with TestClient(self.server.streamable_http_app(), base_url='http://localhost') as client:
+        with TestClient(self.server.streamable_http_app(), base_url='http://localhost:8765') as client:
             response = client.get('/health')
             self.assertEqual(response.status_code, 200)
             body = response.json()
             self.assertEqual(body['catalog']['active'], 1)
             self.assertEqual(body['catalog']['prompts'], 1)
             self.assertEqual(body['capabilities']['model_routing'], 'disabled')
+            self.assertEqual(client.post('/route_task', json={'state': 'Review'}).status_code, 503)
+            self.assertEqual(client.post('/route_task', json={'state': 'Review'},
+                                         headers={'Origin': 'https://example.invalid'}).status_code, 403)
             Path(os.environ['SKILL_HUB_INDEX_PATH']).write_bytes(b'corrupt')
             response = client.get('/health')
             self.assertEqual(response.status_code, 503)
@@ -237,24 +240,22 @@ class PublicCoreTests(unittest.IsolatedAsyncioTestCase):
                     self.assertNotIn('scoring_stages', result['retrieval'])
                     self.assertEqual(result['retrieval']['card_coverage']['derived'], 2)
                     self.assertEqual(result['provider']['requests'][0]['resolved_model'], 'd1.2')
-                    load = result['loads']['loaded'][0]
+                    if mode == 'dynamic':
+                        self.assertEqual(result['loads']['loaded'], [])
+                        self.assertEqual(result['retrieval']['adaptive_rounds'][0]['cap'], 24)
+                        choice = result['choice_pool']['skills'][0]
+                        args = {key: choice[key] for key in ('source_raw_sha256', 'bundle_sha256')}
+                        args['resource_id'] = choice['id']
+                        refused = await self.call('load_resource_choice',
+                                                  {**args, 'source_raw_sha256': '0' * 64})
+                        self.assertEqual(refused['error'], 'CONTENT_CHANGED')
+                        load = await self.call('load_resource_choice', args)
+                        self.assertTrue(load['load_verified'])
+                    else:
+                        load = result['loads']['loaded'][0]
                     self.assertEqual(load['body'].encode(), raw)
                     self.assertEqual(load['body_raw_sha256'], hashlib.sha256(raw).hexdigest())
         self.assertEqual(send_count, 2)
-
-    def test_dynamic_budget_requires_retrieval_evidence_and_keeps_explicit_candidate(self):
-        from router_preparation import dynamic_scoring_pool
-
-        rows = [{'id': f'skill:fixture-{n}', 'type': 'skill'} for n in range(250)]
-        query = {'text': 'Review Python'}
-        explicit = {rows[-1]['id']}
-        full, summary = dynamic_scoring_pool(rows, query, {}, {}, explicit)
-        self.assertEqual(len(full), 250)
-        self.assertEqual(summary['reason'], 'INSUFFICIENT_RETRIEVAL_EVIDENCE')
-        ranks = {rows[0]['id']: {'keyword': 1, 'semantic': 4}}
-        focused, summary = dynamic_scoring_pool(rows, query, ranks, {}, explicit)
-        self.assertEqual(summary['reason'], 'FOCUSED_CORROBORATION')
-        self.assertEqual(focused, rows[:49] + rows[-1:])
 
     async def test_model_profile_rejects_unknown_provider(self):
         key_path = self.root / 'fixture-key'

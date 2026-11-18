@@ -1,5 +1,5 @@
 {
-  "content": "Git blob bytes of Python app modules, standalone entry point, and Rust sources",
+  "content": "Git blob bytes of Python app modules, standalone entry point, and Rust sources and dependency pins",
   "files": [
     {
       "file": "deploy/skill-hub/app/build_graph_projection.py",
@@ -31,7 +31,7 @@
     },
     {
       "file": "deploy/skill-hub/app/elephant_runtime.py",
-      "sha256": "80ad7931b69e98bff751c6c640c23ee5d35c20dbf984ff5218ad61e30ac4dd82"
+      "sha256": "4b5fe66cf34143ecc976716d56f2902ee1ef2676d0ac32766899dacbe03c475a"
     },
     {
       "file": "deploy/skill-hub/app/elephant_shadow.py",
@@ -99,7 +99,7 @@
     },
     {
       "file": "deploy/skill-hub/app/resource_choice.py",
-      "sha256": "1189d9442803c28f7736c73c48547439b0958abcaaf7c4cdb87cb2a8436857e3"
+      "sha256": "d074341afdea0e29642699473ff0a766eca9a001eceb5b9ec6c892ef7b7f4179"
     },
     {
       "file": "deploy/skill-hub/app/resource_hooks.py",
@@ -107,7 +107,7 @@
     },
     {
       "file": "deploy/skill-hub/app/retrieval_fusion.py",
-      "sha256": "84a9508e9428c70b048c5804dea41fd04087cac9fcc53387b6e0aec2e11bd1a0"
+      "sha256": "22a3609357baf051fedef39676854ac013ea1f5a917b8732d7e0c4a3de91bcae"
     },
     {
       "file": "deploy/skill-hub/app/retrieval_graph.py",
@@ -135,7 +135,7 @@
     },
     {
       "file": "deploy/skill-hub/app/router_preparation.py",
-      "sha256": "881da7e480132197b3cfc0460604f0614528beadb06ada2408c76979d6b99702"
+      "sha256": "f11125784740bad16b07f78fe1aeb1e9cc2d7e3752f7ef3eeba41ef16192f814"
     },
     {
       "file": "deploy/skill-hub/app/routing_dataset.py",
@@ -148,6 +148,10 @@
     {
       "file": "deploy/skill-hub/app/rust_refs.py",
       "sha256": "c78081b0481df1fdbd86df3e6688f22f7d0f9ffdc3b61e636b9a62485b931cf2"
+    },
+    {
+      "file": "deploy/skill-hub/app/rust_routing.py",
+      "sha256": "8c7b675deb46eeac987e21db2951b93cd858b870ef15edd304ecee55132529a7"
     },
     {
       "file": "deploy/skill-hub/app/shared_resources.py",
@@ -163,7 +167,11 @@
     },
     {
       "file": "deploy/skill-hub/app/skill_mcp.py",
-      "sha256": "ab0d2d352c997afa3add77c04ecbba9378657bca943a8e8dbef529ba130c803a"
+      "sha256": "5e9efb96dcf160b50bbf882e30f0867458d48202614002647621a9ba960052f9"
+    },
+    {
+      "file": "deploy/skill-hub/app/skill_quality.py",
+      "sha256": "06c361750b00798a102a9f6ffcb1fc710ff1c44b1073bc48dff293b3e88723ba"
     },
     {
       "file": "deploy/skill-hub/app/skill_quality_binding.py",
@@ -172,10 +180,6 @@
     {
       "file": "deploy/skill-hub/app/skill_quality_round02_probe.py",
       "sha256": "2a132e597d2072c3cc577b19d422d019ec4bac0c4e0f3c8aa5d5ad0126f6bf61"
-    },
-    {
-      "file": "deploy/skill-hub/app/skill_quality.py",
-      "sha256": "06c361750b00798a102a9f6ffcb1fc710ff1c44b1073bc48dff293b3e88723ba"
     },
     {
       "file": "deploy/skill-hub/app/skill_reflex_graph.py",
@@ -203,15 +207,39 @@
     },
     {
       "file": "deploy/skill-hub/app/staged_scoring.py",
-      "sha256": "6278aed737a2eb4f1a6accb7e246dc3e4f2d781c20016c3ec1a0acc44c9a5934"
+      "sha256": "fb96c54f4df563105da565943b606b552a771f8141e934b3e805e852e456ad89"
     },
     {
       "file": "deploy/skill-hub/app/task_state.py",
-      "sha256": "f0ecc5ec7b71bb5d1b811120baedc97bc10558ddb16360af29038a0929ff5d75"
+      "sha256": "d7fa3b4c9573d5903e15508f1bbab4b6f44ba3c6e5bd815e654b58dd5fb6635b"
     },
     {
       "file": "deploy/skill-hub/app/test_publish_batch.py",
       "sha256": "e5687547de253397f6d69e681d8eb71109c0366daf471b1b3b1cc9e24d4f4c19"
+    },
+    {
+      "file": "deploy/skill-hub/rust/Cargo.lock",
+      "sha256": "c830352c231cbca8773c9d13552001fb61cfe082b60c3f8b0a98b0b219054991"
+    },
+    {
+      "file": "deploy/skill-hub/rust/Cargo.toml",
+      "sha256": "c38cc1376779a89594b5df3141c814eb4d9cc3b2650827d25e1092c3d0a80ea0"
+    },
+    {
+      "file": "deploy/skill-hub/rust/adaptive_shortlist.rs",
+      "sha256": "55c4a981eb70195ef82b62829978a278098118c7398194c124b987ccd1b0f85e"
+    },
+    {
+      "file": "deploy/skill-hub/rust/choice.rs",
+      "sha256": "08949d399d5b824bff2d98212e3ffaee5bfc3475166f85020beb7c3d0007112b"
+    },
+    {
+      "file": "deploy/skill-hub/rust/decisions.rs",
+      "sha256": "27b7218fdb810ae21a469f1a75aac2b7c68e362c51b20d72416dc8dc49a3d20e"
+    },
+    {
+      "file": "deploy/skill-hub/rust/fusion.rs",
+      "sha256": "a2d5cb71a35c35730e8184628c3e5f7f90b43b1155ab295e1aa7ca3b80781ef0"
     },
     {
       "file": "deploy/skill-hub/rust/metadata.rs",
@@ -222,12 +250,24 @@
       "sha256": "fe4c0810b88e26e9d4d322f12a48988618172182364978dbb0e96c3912c6885d"
     },
     {
+      "file": "deploy/skill-hub/rust/preparation.rs",
+      "sha256": "3a0cc6a4560dc787bc37ff9b65517e4cf7f638d32e50c0a7b614adc561456fc1"
+    },
+    {
+      "file": "deploy/skill-hub/rust/ranking.rs",
+      "sha256": "c7465a301d3d0e601ad6769c385d97cda9c9549a639ca8e4c83274285852375f"
+    },
+    {
       "file": "deploy/skill-hub/rust/refs.rs",
       "sha256": "1c3d7f6c238a1a1002589e041cd0c2f8f46389d00828a87b4172200ddec979c6"
     },
     {
+      "file": "deploy/skill-hub/rust/routing.rs",
+      "sha256": "72f8bfbaa2d9aed6c47b3f6118b61a35b342360a464251a61ef8686bbd657517"
+    },
+    {
       "file": "deploy/skill-hub/serve_core.py",
-      "sha256": "4e1ca657d37a9382c3c63ff8b7a43014f620d8ff46463b67817b69d700324d40"
+      "sha256": "8858663014a67bf14465b8efa30117d1bcd9c168f583dacd40c9349ab304df0e"
     }
   ]
 }

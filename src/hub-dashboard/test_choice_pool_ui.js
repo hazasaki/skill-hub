@@ -4,22 +4,35 @@ const vm = require('node:vm');
 const pool = require('./choice_pool_fixture.json');
 const source = fs.readFileSync(__dirname + '/static/app.js', 'utf8');
 const panel = {hidden: true};
+const checks = [];
 const items = {
+  querySelectorAll() { return checks; },
   children: [],
   get childElementCount() { return this.children.length; },
   replaceChildren() { this.children = []; this.textContent = ''; },
   appendChild(child) { this.children.push(child); }
 };
 const inspected = [];
+const calls = [];
+const results = {children: [], replaceChildren(...children) { this.children = children; }};
+const controls = new Map();
+let receipt;
 const ctx = vm.createContext({
   document: {
     getElementById: id => ({'route-choice-pool': panel, 'route-choice-items': items})[id],
     createElement: () => {
       const node = {};
-      node.querySelector = () => ({addEventListener: (_, action) => { node.inspect = action; }});
+      node.querySelector = selector => {
+        if (selector === '#choice-load-results') return results;
+        return {addEventListener: (_, action) => {
+          if (selector.startsWith('#btn-')) controls.set(selector, action);
+          else node.inspect = action;
+        }};
+      };
       return node;
     }
   },
+  apiFetch: async (path, request) => { calls.push({path, ...request}); return {data: receipt}; },
   openResourceInspector: (...args) => inspected.push(args)
 });
 const extract = (start, end) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)));
@@ -50,3 +63,25 @@ for (const response of [null, {}, {choice_pool: {delivery: 'DEFERRED_FULL_FETCH'
   assert.equal(items.childElementCount, 0);
 }
 console.log('Choice pool contract, identity, receipt, exclusions and reset PASS');
+
+(async () => {
+  const hash = 'a'.repeat(64);
+  const choice = {...pool.prompts[0], source_raw_sha256: hash};
+  const body = 'a'.repeat(17000) + '<interior-marker>';
+  ctx.renderRouteChoicePool({choice_pool: {skills: [], prompts: [choice], excluded: []}});
+  const load = controls.get('#btn-load-selected-choices');
+  await load();
+  assert.equal(calls.length, 0);
+  checks.push({checked: true, dataset: {qid: choice.id}});
+  receipt = {load_verified: true, verified_in_client: true, body_raw_sha256: hash, body_bytes: body.length, body};
+  await load();
+  assert.equal(calls[0].path, 'load_resource_choice');
+  assert.equal(calls[0].body.source_raw_sha256, hash);
+  assert.equal(results.children[0].open, true);
+  assert.match(results.children[0].innerHTML, /&lt;interior-marker&gt;/);
+  receipt = {error: 'BODY_REDACTED'};
+  await load();
+  assert.match(results.children[0].textContent, /BODY_REDACTED/);
+  assert.equal(results.children[0].innerHTML, undefined);
+  console.log('Choice UI: zero, explicit load, escaped >16 KiB body, redaction refusal PASS');
+})().catch(error => { console.error(error); process.exitCode = 1; });

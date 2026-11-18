@@ -82,11 +82,21 @@ def _record_route_telemetry(payload, hub, started):
                   'output_tokens': provider.get('output_tokens', 0),
                   'cost_usd': provider.get('cost_usd'),
                   'elapsed_ms': round((time.monotonic() - started) * 1000, 3)}
+        adaptive = (payload.get('retrieval') or {}).get('adaptive_rounds')
+        if adaptive:
+            fields['reason'] = coverage['stop_reason']
+            fields['skill_threshold'] = payload['thresholds']['skill']['value']
+            fields['prompt_threshold'] = payload['thresholds']['prompt']['value']
         accepted = telemetry.emit_route(sink, fields, route_id=route_id)
-        qualified = [name for name, score in (payload.get('scores') or {}).items()
-                     if isinstance(score, (int, float)) and not isinstance(score, bool)
-                     and ((name.startswith('skill:') and score > .8)
-                          or (name.startswith('prompt:') and score >= .75))]
+        retrieval = payload.get('retrieval') or {}
+        if 'adaptive_rounds' in retrieval:
+            pool = payload['choice_pool']
+            qualified = [row['id'] for kind in ('skills', 'prompts') for row in pool[kind]]
+        else:
+            qualified = [name for name, score in (payload.get('scores') or {}).items()
+                         if isinstance(score, (int, float)) and not isinstance(score, bool)
+                         and ((name.startswith('skill:') and score > .8)
+                              or (name.startswith('prompt:') and score >= .75))]
         skills = [name for name in qualified if name.startswith('skill:')]
         prompts = [name for name in qualified if name.startswith('prompt:')]
         selected = {'skill_count': len(skills), 'prompt_count': len(prompts),
@@ -506,6 +516,103 @@ def build_server(hub=None, materialize_root=None, *, semantic_lookup=None, core_
             return json.dumps({'error': 'RESULT_AUTHORIZATION_FAILED', 'type': type(error).__name__})
 
     @mcp.tool()
+    def load_resource_choice(resource_id: str, source_raw_sha256: str,
+                             loaded_skill_ids_and_versions: list[dict] | None = None,
+                             bundle_sha256: str | None = None) -> str:
+        """Load one eligible skill or prompt in full using its qualified choice_pool id and hashes.
+
+        Supply the raw identity and, for a skill, its exact bundle hash from choice_pool.
+        Supply current loaded dependency identities (qualified id, raw content_sha256 and
+        optional version and bundle_sha256) when needed. The Hub rechecks source and policy and does not
+        score, apply automatic load quotas, or shorten the returned body.
+        """
+        from elephant_runtime import OVERALL_DEADLINE_SECONDS, _conflict_identity, load_verified
+        from resource_card import build_card
+        from resource_choice import recommend
+        from task_state import normalize_task_state
+        deadline = time.monotonic() + OVERALL_DEADLINE_SECONDS
+
+        def encode(value):
+            from pydantic_core import to_json
+            return to_json(value, inf_nan_mode='constants').decode()
+
+        def refuse(reason, related_id=None):
+            return encode({'error': reason, 'id': resource_id,
+                           **({'related_id': related_id} if related_id else {})})
+
+        if (not resource_id.startswith(('skill:', 'prompt:')) or not resource_id.split(':', 1)[1]
+                or not re.fullmatch('[a-f0-9]{64}', source_raw_sha256)
+                or (resource_id.startswith('skill:') and
+                    not re.fullmatch('[a-f0-9]{64}', bundle_sha256 or ''))):
+            return refuse('INVALID_CHOICE_IDENTITY')
+        try:
+            task = normalize_task_state('Load resource choice', {
+                'loaded_skill_ids_and_versions': loaded_skill_ids_and_versions})
+        except ValueError:
+            return refuse('INVALID_LOADED_IDENTITIES')
+
+        def read(identifier):
+            kind, name = identifier.split(':', 1)
+            return (si.get(name, hub, materialize=False, require_indexed=True) if kind == 'skill'
+                    else si.get_prompt(name, hub, require_indexed=True))
+
+        def entry(identifier, item):
+            kind, name = identifier.split(':', 1)
+            return {'id': identifier, 'type': kind, 'resource_id': name, 'state': 'active',
+                    'content_sha256': item['content_sha256'], 'bundle_sha256': item.get('bundle_sha256'),
+                    'resource_card': build_card(item), 'choice_metadata': item.get('metadata') or {}}
+
+        try:
+            target = entry(resource_id, read(resource_id))
+        except (ValueError, KeyError, OSError, TypeError):
+            return refuse('RESOURCE_UNAVAILABLE')
+        if (target['resource_card']['source_raw_sha256'] != source_raw_sha256
+                or (target['type'] == 'skill' and target['bundle_sha256'] != bundle_sha256)):
+            return refuse('CONTENT_CHANGED')
+
+        entries = {resource_id: target}
+        for claim in task['loaded_skill_ids_and_versions'] or ():
+            identifier = claim['id']
+            if time.monotonic() >= deadline:
+                return refuse('DEADLINE')
+            if (identifier in entries or not claim.get('content_sha256') or
+                    not identifier.startswith(('skill:', 'prompt:'))):
+                continue
+            try:
+                entries[identifier] = entry(identifier, read(identifier))
+            except (ValueError, KeyError, OSError, TypeError):
+                continue
+
+        def identify(identifier):
+            if not identifier.startswith('skill:') or time.monotonic() >= deadline:
+                return None
+            try:
+                return _conflict_identity(si, hub, identifier[6:], read(identifier))
+            except (ValueError, KeyError, OSError, TypeError):
+                return None
+
+        def verify(candidate, dependencies, materialize=False):
+            return load_verified(si, hub, candidate, policy_gate=policy_gate,
+                                 materialize_root=materialize_root, materialize=materialize,
+                                 deadline_at=deadline, available_resources=dependencies,
+                                 check_conflict_identity=True)
+
+        # Supplying the target among already-loaded claims must not bypass validation.
+        task['loaded_skill_ids_and_versions'] = [
+            claim for claim in task['loaded_skill_ids_and_versions'] or () if claim['id'] != resource_id]
+        pool, chosen, _, deps = recommend(
+            [{'entry': target, 'score': 1.0}], entries, task, {resource_id}, verify,
+            {'skill': 12, 'prompt': 8}, None, identify=identify)
+        if resource_id not in chosen:
+            error = next((row for row in pool['excluded'] if row['id'] == resource_id), {})
+            return refuse(error.get('reason', 'CHOICE_UNAVAILABLE'), error.get('related_id'))
+        receipt, error = verify(target, deps[resource_id], materialize=True)
+        if error:
+            return refuse(error['outcome'])
+        receipt.pop('conflict_identity', None)
+        return encode(receipt)
+
+    @mcp.tool()
     def route_task(state: str, max_candidates: int = 10, threshold: float = 0.5,
                    transport_mode: str = 'live', include_graph: bool = False,
                    task_id: str | None = None, evaluation_json: str | None = None,
@@ -513,9 +620,15 @@ def build_server(hub=None, materialize_root=None, *, semantic_lookup=None, core_
                    response_mode: str = 'full', task_state: dict | None = None) -> str:
         """Call FIRST for every task, before manually searching skills or prompts.
 
-        Scores catalog metadata with independent Elephant noul questions. Loads at most
-        five skills scoring >0.80 and three prompts scoring >=0.75 in descending score
-        order, returning full bodies. Other qualifying resources are deferred explicitly.
+        Optional task_state supplies current_step, desired_output, artifact_types, available_tools,
+        constraints, loaded_skill_ids_and_versions and explicit_skill_ids. Missing values mean
+        unknown; invalid fields return INVALID_TASK_STATE. The response echoes normalized
+        task_state and its exact task_state_sha256. Original state text is preserved.
+
+        Scores catalog metadata with the configured provider. In dynamic mode, evaluates separate adaptive skill and prompt thresholds across rounds. The choice pool permits up to
+        12 skills and 8 prompts. Recommendations reflect relevance, dependencies and overlap. Full output includes complete loaded bodies by default. Explicit
+        response_mode=compact opts into bounded descriptors with authorized full retrieval.
+        Other qualifying resources are deferred explicitly.
         Visibility does not grant load permission. Coverage reports exactly how many
         resources the model scored; budget/deadline limits never imply whole-catalog PASS.
         Search both skills and prompts only after three model-call errors or a shared
@@ -591,12 +704,27 @@ def build_server(hub=None, materialize_root=None, *, semantic_lookup=None, core_
                 # rather than the router pretending a four-engine answer.
                 tempr = config
 
+            scoring_mode = os.environ.get('SKILL_HUB_SCORE_MODE', 'dynamic')
+            coefficients = None
+            if scoring_mode == 'dynamic':
+                try:
+                    from math import isfinite
+
+                    k = float(os.environ.get('SKILL_HUB_ADAPTIVE_K', '1.25' if core_only else ''))
+                    h = float(os.environ.get('SKILL_HUB_ADAPTIVE_H', '5' if core_only else ''))
+                    if not (isfinite(k) and isfinite(h) and k >= 0 and h > 0):
+                        raise ValueError('invalid adaptive coefficients')
+                    coefficients = k, h
+                except (KeyError, ValueError):
+                    return finish({'error': 'ADAPTIVE_COEFFICIENTS_REQUIRED',
+                                   'detail': 'Set numeric SKILL_HUB_ADAPTIVE_K and SKILL_HUB_ADAPTIVE_H'})
+
             result = chain.run_multi(
                 catalog_module=catalog, hub=resolved_hub, query={'text': render_task_state(normalized), 'task_state': normalized},
                 transport=transport, key=key, budget=budget, model=model, endpoint=endpoint,
                 policy_gate=policy_gate, materialize_root=materialize_root,
                 scenario_id='skill-hub-route-task', tempr=tempr,
-                scoring_mode=os.environ.get('SKILL_HUB_SCORE_MODE', 'dynamic'))
+                scoring_mode=scoring_mode, adaptive_coefficients=coefficients)
             # Compatibility parameters never weaken the fixed per-kind score contract.
             payload = {
                 'schema_version': 'openbot.elephant.route_task.v2',
@@ -613,8 +741,9 @@ def build_server(hub=None, materialize_root=None, *, semantic_lookup=None, core_
                 'score_provenance': result['score_provenance'],
                 'visibility': result['visibility'], 'provider': result['provider'],
                 'catalog_index_sha256': result['catalog']['index_sha256'],
-                'thresholds': {'skill': {'operator': '>', 'value': 0.80},
-                               'prompt': {'operator': '>=', 'value': 0.75}},
+                'thresholds': result.get('thresholds', {} if scoring_mode == 'dynamic' else {
+                    'skill': {'operator': '>', 'value': 0.80},
+                    'prompt': {'operator': '>=', 'value': 0.75}}),
                 'execution': 'UNKNOWN', 'evaluation': 'UNKNOWN',
                 'dispatch_influenced': False,
                 'limits': ['Resource bodies are data for the agent; execution and independent '
