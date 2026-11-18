@@ -213,6 +213,7 @@ def _prepare_fused(entries, text, limit, *, fts_ranks, config, deadline, group_m
                              'hash_kind': item['hash_kind'], 'reason': item.get('reason')}
                       for name, item in fused['binding']['artifacts'].items()},
         'coverage': fused['coverage'],
+        'engine_ranks': {row['id']: row['best_rank'] for row in fused['selected']},
     }
     if missing:
         evidence['unresolvable_selected_ids'] = missing
@@ -245,7 +246,7 @@ def interleave(entries):
     return output
 
 
-def coalesce(entries):
+def coalesce(entries, *, exact_cards=False, explicit=()):
     """Reuse scores only for indexed identical content and complete bundle identities.
 
     Aliases keep their own ids and load permissions. Missing bundle identity means no
@@ -259,6 +260,10 @@ def coalesce(entries):
         identity = (entry['type'], content, bundle, entry.get('risk'),
                     entry.get('description'), entry.get('tags'), entry.get('purpose_excerpt'),
                     entry.get('state')) if equivalent else None
+        if exact_cards and identity is not None:
+            card = entry.get('resource_card') or {}
+            raw, card_hash = card.get('source_raw_sha256'), card.get('card_sha256')
+            identity = (identity, raw, card_hash) if valid(raw) and valid(card_hash) and entry['id'] not in explicit else None
         if identity is not None and identity in seen:
             aliases.setdefault(seen[identity], []).append(entry)
         else:

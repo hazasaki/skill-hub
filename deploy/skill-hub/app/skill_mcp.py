@@ -35,7 +35,6 @@ try:
 except ImportError:  # pragma: no cover - reported by main() instead of crashing on import
     FastMCP = None
 
-BODY_CAP = 200_000
 NORMALIZATION = 'CRLF and CR converted to LF; all other characters preserved; UTF-8'
 MAX_JSON_CHARS = 1_000_000
 # Only the optional model router uses provider credentials.
@@ -180,10 +179,10 @@ def check_skill_run(record_json, skill_response_json='null'):
     return binding.validate_binding(record, response)
 
 
-def body_identity(original, offset: int = 0, max_chars: int = BODY_CAP):
+def body_identity(original, offset: int = 0, max_chars: int | None = None):
     """Identity of the returned body slice: exact slice, hash normalized with newlines to LF."""
     start = max(0, int(offset))
-    cap = max(1, min(int(max_chars), BODY_CAP))
+    cap = len(original) if max_chars is None else max(1, int(max_chars))
     returned = original[start : start + cap]
     normalized_slice = returned.replace('\r\n', '\n').replace('\r', '\n')
     end = start + len(returned)
@@ -191,20 +190,22 @@ def body_identity(original, offset: int = 0, max_chars: int = BODY_CAP):
     return {'algorithm': 'sha256',
             'normalization': NORMALIZATION,
             'returned_body_sha256': hashlib.sha256(normalized_slice.encode('utf-8')).hexdigest(),
+            'returned_raw_sha256': hashlib.sha256(returned.encode('utf-8')).hexdigest(),
             'body_truncated': truncated}, returned
 
 
-def body_continuation(original, offset: int = 0, max_chars: int = BODY_CAP):
+def body_continuation(original, offset: int = 0, max_chars: int | None = None):
     """Continuation metadata for sliced/paginated body serving."""
     normalized_all = original.replace('\r\n', '\n').replace('\r', '\n')
     start = max(0, int(offset))
-    cap = max(1, min(int(max_chars), BODY_CAP))
+    cap = len(original) if max_chars is None else max(1, int(max_chars))
     returned = original[start : start + cap]
     total_chars = len(original)
     end = start + len(returned)
     next_offset = end if end < total_chars else None
     return {
         'whole_body_sha256': hashlib.sha256(normalized_all.encode('utf-8')).hexdigest(),
+        'whole_body_raw_sha256': hashlib.sha256(original.encode('utf-8')).hexdigest(),
         'offset': start,
         'returned_chars': len(returned),
         'total_chars': total_chars,
@@ -240,7 +241,7 @@ async def multilingual_results(lookup, kind, query, limit, hub, prompt_type=None
     return json.dumps(payload, ensure_ascii=False)
 
 
-def build_server(hub=None, materialize_root=None, *, semantic_lookup=None, core_only=False):
+def build_server(hub=None, materialize_root=None, *, semantic_lookup=None, core_only=False, model_key_path=None):
     if FastMCP is None:
         raise SystemExit('mcp SDK missing; install with: pip install mcp')
     mcp = FastMCP('skill-hub')
@@ -263,15 +264,39 @@ def build_server(hub=None, materialize_root=None, *, semantic_lookup=None, core_
                                        'before concluding the hub lacks this skill'})
         return json.dumps({'query': query, 'results': rows}, ensure_ascii=False)
 
+    def manual_policy(kind, name, item):
+        from elephant_runtime import policy_context
+        from resource_choice import references
+        metadata = item.get('metadata') or {}
+        try:
+            references(metadata, 'dependencies')
+            references(metadata, 'conflicts_with')
+        except ValueError:
+            return {'error': 'INVALID_DECLARATION', 'name': name}
+        resource = {**metadata, 'id': name, 'type': kind, 'body': item['body'],
+                    'bundle_files': item.get('files') or [],
+                    'authorization_source': metadata.get('authorization_source', 'host_policy_only'),
+                    'prompt_type': item.get('prompt_type') or 'agent_role'}
+        if metadata.get('disabled') is True:
+            return {'error': 'RESOURCE_DISABLED', 'name': name}
+        safety = policy_gate.verify_resource_safety(resource)
+        if not safety['allowed']:
+            return {'error': 'UNSAFE_RESOURCE', 'name': name,
+                    'policy': {'status': safety['status'], 'reasons': safety['reasons']}}
+        verdict = policy_gate.evaluate_policy_and_permissions(policy_context(resources=[resource]))
+        if not verdict['allowed']:
+            return {'error': 'POLICY_DENIED', 'name': name, 'reasons': verdict.get('reasons', [])}
+        return None
+
     @mcp.tool()
-    def get_skill(name: str, offset: int = 0, max_chars: int = BODY_CAP) -> str:
+    def get_skill(name: str, offset: int = 0, max_chars: int | None = None) -> str:
         """Load one skill's full instructions plus the path holding its supporting files.
 
         Use after search_skills names a skill that applies. The returned `path` is a
         materialized copy — read reference files and run scripts from there, not from the hub.
 
         `identity.returned_body_sha256` hashes the returned `body`; `body_truncated` marks a
-        response cut at the size cap, so the hash then covers only that prefix.
+        response sliced by explicit pagination, so the hash then covers only that prefix.
 
         `content_sha256` and `bundle_sha256` are the whole-body and whole-tree identities;
         `metadata` is the skill's own frontmatter, including any `check_command` or `rubric`
@@ -281,14 +306,12 @@ def build_server(hub=None, materialize_root=None, *, semantic_lookup=None, core_
         try:
             # R3-C05: the host policy gate decides before anything is staged on disk.
             source = si.get(name, hub, materialize=False, require_indexed=True)
-            verdict = policy_gate.verify_resource_safety(
-                {'type': 'skill', 'authorization_source': 'host_policy_only',
-                 'bundle_files': source['files'], 'body': source['body']})
-            if not verdict['allowed']:
-                return json.dumps({'error': 'UNSAFE_RESOURCE', 'name': name,
-                                   'policy': {'status': verdict['status'],
-                                              'reasons': verdict['reasons']}}, ensure_ascii=False)
+            refusal = manual_policy('skill', name, source)
+            if refusal:
+                return json.dumps(refusal, ensure_ascii=False)
             item = si.get(name, hub, materialize_root=materialize_root, require_indexed=True)
+            if item['file_sha256'] != source['file_sha256'] or item['bundle_sha256'] != source['bundle_sha256']:
+                return json.dumps({'error': 'CONTENT_CHANGED', 'name': name})
         except (KeyError, ValueError, OSError) as error:
             # A bundle that cannot be identified or materialized safely is reported, not served
             # with a digest that would not reproduce.
@@ -323,7 +346,7 @@ def build_server(hub=None, materialize_root=None, *, semantic_lookup=None, core_
                           ensure_ascii=False)
 
     @mcp.tool()
-    def get_prompt(name: str, offset: int = 0, max_chars: int = BODY_CAP) -> str:
+    def get_prompt(name: str, offset: int = 0, max_chars: int | None = None) -> str:
         """Load one prompt template's full text and the identity a reader can re-check.
 
         `content_sha256` hashes the normalized body (line endings collapsed); `file_sha256`
@@ -333,17 +356,9 @@ def build_server(hub=None, materialize_root=None, *, semantic_lookup=None, core_
         """
         try:
             item = si.get_prompt(name, hub, require_indexed=True)
-            # The same gate a skill passes: a prompt body carrying a policy-override or
-            # install directive is refused rather than served.
-            verdict = policy_gate.verify_resource_safety(
-                {'type': 'prompt', 'prompt_type': item.get('prompt_type') or 'agent_role',
-                 'authorization_source': 'host_policy_only',
-                 'bundle_files': [], 'body': item['body']})
-            if not verdict['allowed']:
-                return json.dumps({'error': 'UNSAFE_RESOURCE', 'name': name,
-                                   'policy': {'status': verdict['status'],
-                                              'reasons': verdict['reasons']}},
-                                  ensure_ascii=False)
+            refusal = manual_policy('prompt', name, item)
+            if refusal:
+                return json.dumps(refusal, ensure_ascii=False)
         except (KeyError, ValueError, OSError) as error:
             return json.dumps({'error': str(error)})
         raw_body = item['body']
@@ -382,64 +397,119 @@ def build_server(hub=None, materialize_root=None, *, semantic_lookup=None, core_
         """Report library size and index health."""
         return json.dumps(si.stats(hub))
 
-    if core_only:
+    if core_only and model_key_path is None:
         return mcp
 
+    if not core_only:
+        @mcp.tool()
+        def search_hub_tools(query: str = '', server: str = '', limit: int = 15) -> str:
+            """Search on-demand MCP tools across `rea` (229 reverse-engineering tools), `computer_use` (59 GUI tools), `excel` (46 workbook tools), and `openbot-reliability` (36 bank tools).
+
+            Use this whenever a task needs reverse engineering, Excel manipulation, GUI computer use,
+            or the openbot-reliability bank without loading 370+ tool schemas eagerly.
+            """
+            return json.dumps(broker.search_tools(query=query, server=server, limit=limit, catalog_path=catalog_path), ensure_ascii=False)
+
+        @mcp.tool()
+        def describe_hub_tool(server: str, tool_name: str) -> str:
+            """Return the full JSON inputSchema and description for one on-demand MCP tool from `rea`, `computer_use`, `excel`, or `openbot-reliability`."""
+            return json.dumps(broker.describe_tool(server=server, tool_name=tool_name, catalog_path=catalog_path), ensure_ascii=False)
+
+        @mcp.tool()
+        def call_hub_tool(server: str, tool_name: str, arguments_json: str = '{}', timeout_seconds: int = 60) -> str:
+            """Execute an on-demand MCP tool on `rea`, `computer_use`, `excel`, or `openbot-reliability`.
+
+            Pass arguments as a JSON object string in `arguments_json` after checking `describe_hub_tool`.
+            """
+            if os.environ.get('SKILL_HUB_DISABLE_BROKER') == '1':
+                return json.dumps({'error': 'BROKER_UNAVAILABLE',
+                                   'detail': 'Host tool execution is disabled in this deployment'})
+            return json.dumps(
+                broker.call_tool(
+                    server=server,
+                    tool_name=tool_name,
+                    arguments_json=arguments_json,
+                    timeout_seconds=timeout_seconds,
+                ),
+                ensure_ascii=False,
+            )
+
+        @mcp.tool()
+        def validate_skill_run(record_json: str, skill_response_json: str = 'null') -> str:
+            """Check one quality record and bind it to a `get_skill` response you supply.
+
+            Pass the record as JSON in `record_json` and the `get_skill` response object in
+            `skill_response_json`. Returns exactly `{"overall_status", "binding_status"}`, each
+            `pass`/`fail`/`unknown`. Nothing is fetched or executed: a mismatch here means the
+            record and the response you supplied contradict each other, which is how a tampered
+            `body_sha256` is caught. Bad input returns `{"error": "..."}` with no echo of your
+            payload. Without a response, binding is `unknown`; a structurally failed record still
+            reports `fail`.
+            """
+            try:
+                return json.dumps(check_skill_run(record_json, skill_response_json))
+            except (ValueError, RecursionError) as error:
+                return json.dumps({'error': _safe_error(error)})
+
+    from route_response import ResponseStore
+    responses = ResponseStore()
+
+    def authorize_route_result(payload):
+        import elephant_runtime as chain
+        def read_source(kind, name):
+            if kind == 'skill':
+                return si.get(name, hub or si.HUB, materialize=False, require_indexed=True)
+            return si.get_prompt(name, hub or si.HUB, require_indexed=True)
+        verified = set()
+        loaded = (payload.get('loads') or {}).get('loaded', [])
+        for receipt in (item for row in loaded for item in (*row.get('dependency_pins', []), row)):
+            identity = (receipt['type'], receipt['id'], receipt.get('body_raw_sha256'),
+                        receipt.get('bundle_sha256'), tuple(receipt.get('available_resources', ())))
+            if identity in verified:
+                continue
+            selected = {'id': receipt['id'], 'type': receipt['type'], 'state': 'active',
+                        'content_sha256': receipt.get('served_content_sha256'),
+                        'bundle_sha256': receipt.get('bundle_sha256')}
+            current, problem = chain.load_verified(
+                si, hub or si.HUB, selected, policy_gate=policy_gate, loader=read_source,
+                available_resources=receipt.get('available_resources', ()))
+            if problem:
+                return {'error': problem['outcome'], 'resource': receipt['id'],
+                        'detail': problem['reason']}
+            if (current['body_sha256'] != receipt.get('body_sha256')
+                    or (receipt.get('body_raw_sha256') is not None
+                        and current.get('body_raw_sha256') != receipt['body_raw_sha256'])):
+                return {'error': 'CONTENT_CHANGED', 'resource': receipt['id']}
+            verified.add(identity)
+        return None
+    def read_route_result(result_id):
+        try:
+            return responses.read(result_id, authorize_route_result)
+        except Exception as error:
+            return None, {'error': 'RESULT_AUTHORIZATION_FAILED', 'type': type(error).__name__}
+
+    # Internal HTTP download uses the identical per-request gate, without a model-context dump.
+    mcp._read_route_result = read_route_result
+
     @mcp.tool()
-    def search_hub_tools(query: str = '', server: str = '', limit: int = 15) -> str:
-        """Search on-demand MCP tools across `rea` (229 reverse-engineering tools), `computer_use` (59 GUI tools), `excel` (46 workbook tools), and `openbot-reliability` (36 bank tools).
+    def get_route_result(result_id: str, offset: int = 0, max_chars: int = 8192) -> str:
+        """Read bounded snapshot pages; join text and verify sha256.
 
-        Use this whenever a task needs reverse engineering, Excel manipulation, GUI computer use,
-        or the openbot-reliability bank without loading 370+ tool schemas eagerly.
-        """
-        return json.dumps(broker.search_tools(query=query, server=server, limit=limit, catalog_path=catalog_path), ensure_ascii=False)
-
-    @mcp.tool()
-    def describe_hub_tool(server: str, tool_name: str) -> str:
-        """Return the full JSON inputSchema and description for one on-demand MCP tool from `rea`, `computer_use`, `excel`, or `openbot-reliability`."""
-        return json.dumps(broker.describe_tool(server=server, tool_name=tool_name, catalog_path=catalog_path), ensure_ascii=False)
-
-    @mcp.tool()
-    def call_hub_tool(server: str, tool_name: str, arguments_json: str = '{}', timeout_seconds: int = 60) -> str:
-        """Execute an on-demand MCP tool on `rea`, `computer_use`, `excel`, or `openbot-reliability`.
-
-        Pass arguments as a JSON object string in `arguments_json` after checking `describe_hub_tool`.
-        """
-        if os.environ.get('SKILL_HUB_DISABLE_BROKER') == '1':
-            return json.dumps({'error': 'BROKER_UNAVAILABLE',
-                               'detail': 'Host tool execution is disabled in this deployment'})
-        return json.dumps(
-            broker.call_tool(
-                server=server,
-                tool_name=tool_name,
-                arguments_json=arguments_json,
-                timeout_seconds=timeout_seconds,
-            ),
-            ensure_ascii=False,
-        )
-
-    @mcp.tool()
-    def validate_skill_run(record_json: str, skill_response_json: str = 'null') -> str:
-        """Check one quality record and bind it to a `get_skill` response you supply.
-
-        Pass the record as JSON in `record_json` and the `get_skill` response object in
-        `skill_response_json`. Returns exactly `{"overall_status", "binding_status"}`, each
-        `pass`/`fail`/`unknown`. Nothing is fetched or executed: a mismatch here means the
-        record and the response you supplied contradict each other, which is how a tampered
-        `body_sha256` is caught. Bad input returns `{"error": "..."}` with no echo of your
-        payload. Without a response, binding is `unknown`; a structurally failed record still
-        reports `fail`.
+        Each page rechecks current source activation, policy and pinned hashes.
+        Supporting-file paths describe the original receipt and are not recertified.
+        References expire after ten minutes, eviction or restart; reroute if expired.
         """
         try:
-            return json.dumps(check_skill_run(record_json, skill_response_json))
-        except (ValueError, RecursionError) as error:
-            return json.dumps({'error': _safe_error(error)})
+            return responses.fetch(result_id, offset, max_chars, authorize_route_result)
+        except Exception as error:
+            return json.dumps({'error': 'RESULT_AUTHORIZATION_FAILED', 'type': type(error).__name__})
 
     @mcp.tool()
     def route_task(state: str, max_candidates: int = 10, threshold: float = 0.5,
                    transport_mode: str = 'live', include_graph: bool = False,
                    task_id: str | None = None, evaluation_json: str | None = None,
-                   retrieval_mode: str = 'tempr', retrieval_config: str | None = None) -> str:
+                   retrieval_mode: str = 'metadata', retrieval_config: str | None = None,
+                   response_mode: str = 'full', task_state: dict | None = None) -> str:
         """Call FIRST for every task, before manually searching skills or prompts.
 
         Scores catalog metadata with independent Elephant noul questions. Loads at most
@@ -449,7 +519,8 @@ def build_server(hub=None, materialize_root=None, *, semantic_lookup=None, core_
         resources the model scored; budget/deadline limits never imply whole-catalog PASS.
         Search both skills and prompts only after three model-call errors or a shared
         18-second end-to-end route deadline (with 10-second model cap). Valid declines and permission denials never trigger search.
-        Live model execution is mandatory; offline/bypass modes are rejected.
+        This tool is exposed only in the provider-enabled profile. It sends task state
+        and candidate metadata to the configured provider.
         Missing credentials fail explicitly. Legacy max_candidates and threshold
         parameters are retained for callers but cannot override the fixed contract.
         Execution/evaluation remain UNKNOWN without per-resource host-bound evidence.
@@ -461,11 +532,24 @@ def build_server(hub=None, materialize_root=None, *, semantic_lookup=None, core_
         preparation falls back to the metadata ranking with that reason recorded, because an
         unbuilt index is not evidence of no skill.
         """
+        from task_state import normalize_task_state, render_task_state, task_state_hash
+
+        if response_mode not in ('full', 'compact'):
+            return json.dumps({'error': 'INVALID_RESPONSE_MODE'})
+        try:
+            normalized = normalize_task_state(state, task_state)
+        except ValueError as error:
+            return json.dumps({'error': 'INVALID_TASK_STATE', 'detail': str(error)})
+        if core_only and (retrieval_mode != 'metadata' or retrieval_config is not None):
+            return json.dumps({'error': 'UNSUPPORTED_RETRIEVAL_MODE',
+                               'detail': 'The standalone model profile uses local metadata retrieval.'})
         started = time.monotonic()
         telemetry_hub = Path(hub or si.HUB)
         def finish(payload):
             payload['telemetry'] = _record_route_telemetry(payload, telemetry_hub, started)
-            return json.dumps(payload, ensure_ascii=False)
+            payload['task_state'] = normalized
+            payload['task_state_sha256'] = task_state_hash(normalized)
+            return responses.render(payload, response_mode)
         try:
             import shortlist_runtime as shortlist
             import elephant_runtime as chain
@@ -476,7 +560,7 @@ def build_server(hub=None, materialize_root=None, *, semantic_lookup=None, core_
                 return finish({'error': 'LIVE_MODEL_REQUIRED',
                                'detail': 'route_task requires live Elephant execution'})
             transport = None
-            key = shadow.load_key(_resolve_live_key_path())
+            key = shadow.load_key(model_key_path if core_only else _resolve_live_key_path())
             budget = shadow.CostBudget(LIVE_BUDGET_USD)
 
             eval_dict = None
@@ -503,10 +587,11 @@ def build_server(hub=None, materialize_root=None, *, semantic_lookup=None, core_
                 tempr = config
 
             result = chain.run_multi(
-                catalog_module=catalog, hub=resolved_hub, query={'text': state},
+                catalog_module=catalog, hub=resolved_hub, query={'text': render_task_state(normalized), 'task_state': normalized},
                 transport=transport, key=key, budget=budget,
                 policy_gate=policy_gate, materialize_root=materialize_root,
-                scenario_id='skill-hub-route-task', tempr=tempr)
+                scenario_id='skill-hub-route-task', tempr=tempr,
+                scoring_mode=os.environ.get('SKILL_HUB_SCORE_MODE', 'baseline'))
             # Compatibility parameters never weaken the fixed per-kind score contract.
             payload = {
                 'schema_version': 'openbot.elephant.route_task.v2',
@@ -516,6 +601,7 @@ def build_server(hub=None, materialize_root=None, *, semantic_lookup=None, core_
                 'fallback_discovery': result['fallback_discovery'],
                 'trigger': result['trigger'],
                 'selected': result['selected'], 'loads': result['loads'],
+                'choice_pool': result['choice_pool'],
                 'scores': result['scores'], 'coverage': result['coverage'],
                 'retrieval': result['retrieval'], 'cache': result['cache'],
                 'partial': result['partial'], 'partial_reason': result['partial_reason'],
@@ -542,7 +628,7 @@ def build_server(hub=None, materialize_root=None, *, semantic_lookup=None, core_
             # This tool's arguments are operator-controlled, so the type and message are useful
             # and carry no caller payload. The bounded validator path keeps _safe_error.
             return finish({'error': 'ROUTE_FAILED', 'type': type(error).__name__,
-                           'detail': str(error)[:400]})
+                           'detail': 'Routing could not complete. Check local catalog and provider configuration.'})
 
     return mcp
 
