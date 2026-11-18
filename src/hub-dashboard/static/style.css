@@ -136,28 +136,10 @@ progress.score-meter {
   gap: 12px;
 }
 
-.logo {
-  font-size: 22px;
-  font-weight: 700;
-  width: 40px;
-  height: 40px;
-  background: #1b2c43;
-  display: grid;
-  place-content: center;
-  position: relative;
-  border-radius: 9px;
-  border: 1px solid #344d6f;
-  color: #fff;
-  flex-shrink: 0;
-}
-
-.logo span {
-  color: var(--alive);
-  position: absolute;
-  right: 2px;
-  bottom: -4px;
-  font-size: 22px;
-}
+.hub-architecture { padding: 1rem; }
+.hub-architecture summary { cursor: pointer; font-weight: 600; }
+.hub-architecture p { margin: 1rem 0; }
+.hub-architecture img { display: block; width: 100%; max-width: 940px; height: auto; }
 
 .brand-text {
   min-width: 0;

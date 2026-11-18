@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0b1018">
   <title>Skill Hub · Bảng Điều Khiển Quản Trị Hệ Thống</title>
-  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="skill-hub.png" type="image/png">
   <link rel="stylesheet" href="style.css">
   <script src="intake.js" defer></script>
   <script src="app.js" defer></script>
@@ -15,7 +15,7 @@
     <!-- Sidebar Navigation Rail -->
     <aside class="sidebar" aria-label="Điều hướng chính">
       <div class="brand">
-        <span class="logo" aria-hidden="true">H<span>•</span></span>
+        <img src="skill-hub.png" width="42" height="42" alt="">
         <div class="brand-text">
           <h1 class="brand-title">Skill Hub</h1>
           <span class="brand-subtitle">Bảng điều khiển</span>
@@ -186,6 +186,14 @@
           <div class="section-lead">
             <p>Tổng quan số lượng tài nguyên, trạng thái kết nối nguồn dữ liệu, biểu đồ sự kiện và hoạt động điều hướng gần nhất.</p>
           </div>
+
+          <details class="hub-architecture card mb-md">
+            <summary>Sơ đồ kiến trúc Skill Hub</summary>
+            <p>Hub đề xuất tài nguyên từ kho. Agent chọn mục cần dùng. Hub kiểm tra quyền, phụ thuộc và mã băm trước khi trả nội dung.</p>
+            <a href="architecture.svg" target="_blank" rel="noopener" aria-label="Mở sơ đồ kiến trúc ở kích thước đầy đủ (tab mới)">
+              <img src="architecture.svg" width="940" height="560" alt="Luồng từ kho skill và prompt đến nội dung đã xác minh">
+            </a>
+          </details>
 
           <!-- Bàn phóng Kiểm thử Nhanh route_task -->
           <div class="card route-quicklaunch-card mb-md">
