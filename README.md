@@ -4,6 +4,12 @@ Skill Hub is a local catalog for reusable AI skills and prompts. Browse the cata
 
 ![Skill Hub architecture: source files, catalog, access and use](docs/assets/architecture.svg)
 
+[Release notes](CHANGELOG.md) · [Provider setup](deploy/skill-hub/README.md)
+
+## Dashboard preview
+
+![Dashboard inspecting the bundled review-checklist skill](docs/assets/dashboard.png)
+
 ## Repository map
 
 | Directory | Responsibility |
