@@ -491,12 +491,13 @@
                 <textarea id="route-task-input" class="form-control" rows="3" placeholder="Nhập trạng thái công việc hoặc câu hỏi tự nhiên cần router System-1 định tuyến kỹ năng và prompt phù hợp..."></textarea>
               </div>
 
+<details class="form-group mb-sm"><summary>Ngữ cảnh bổ sung (không bắt buộc)</summary><p class="text-xs text-muted">Để trống nghĩa là chưa cung cấp. Các danh sách nhập mỗi dòng một mục. Không tự xác nhận công cụ hoặc tài nguyên chưa có.</p><label for="route-context-current_step">Bước hiện tại</label><textarea id="route-context-current_step" class="form-control mb-sm" rows="2"></textarea><label for="route-context-desired_output">Kết quả mong muốn</label><textarea id="route-context-desired_output" class="form-control mb-sm" rows="2"></textarea><label for="route-context-artifact_types">Loại tài liệu / sản phẩm</label><textarea id="route-context-artifact_types" class="form-control mb-sm" rows="2"></textarea><label for="route-context-available_tools">Công cụ đang có</label><textarea id="route-context-available_tools" class="form-control mb-sm" rows="2"></textarea><label for="route-context-constraints">Ràng buộc</label><textarea id="route-context-constraints" class="form-control mb-sm" rows="2"></textarea><label for="route-context-loaded_skill_ids_and_versions">Tài nguyên đã nạp — mảng JSON gồm id, version, content_sha256</label><textarea id="route-context-loaded_skill_ids_and_versions" class="form-control mb-sm" rows="2"></textarea><label for="route-context-explicit_skill_ids">Skill được yêu cầu rõ tên / ID</label><textarea id="route-context-explicit_skill_ids" class="form-control mb-sm" rows="2"></textarea></details>
               <!-- Controls Row: Mode, Task ID, Graph, Actions -->
               <div class="route-studio-controls">
                 <div class="control-item mode-select-wrap">
                   <label for="route-studio-mode" class="text-xs text-muted">Chế độ thực thi:</label>
                   <select id="route-studio-mode" class="form-control">
-                    <option value="tempr" selected>route_task: TEMPR 4-Engine + Elephant (Chuẩn production)</option>
+                    <option value="tempr" selected>route_task: TEMPR 4-Engine + Elephant</option>
                     <option value="metadata">route_task: Metadata Ranking + Elephant</option>
                     <option value="semantic">Tìm kiếm Ngữ nghĩa nhanh (BGE-M3 dGPU, 0 phí model)</option>
                   </select>
@@ -533,6 +534,7 @@
               <div id="route-studio-error" class="alert-box alert-danger mt-sm" hidden></div>
 
               <!-- Rich Results Display -->
+<pre id="route-normalized-context" class="text-xs" hidden></pre>
               <div id="route-studio-results" class="route-studio-results mt-md" hidden>
                 <!-- 1. Decision Summary Banner -->
                 <div class="decision-banner mb-md" id="decision-banner">
@@ -632,6 +634,11 @@
                     </div>
                   </div>
                 </div>
+
+                <details id="route-choice-pool" class="mb-md" open hidden>
+                  <summary>Tài nguyên đủ điều kiện</summary>
+                  <div id="route-choice-items" class="loaded-cards-grid mt-sm"></div>
+                </details>
 
                 <!-- 3. Selected & Loaded Resources -->
                 <div class="loaded-resources-section mb-md" id="loaded-resources-section">

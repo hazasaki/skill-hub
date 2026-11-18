@@ -450,7 +450,8 @@ class Dashboard:
             state=state,
             retrieval_mode=retrieval_mode,
             include_graph=include_graph,
-            task_id=task_id
+            task_id=task_id,
+            **({'task_state': payload['task_state']} if 'task_state' in payload else {})
         )
         status = 'ok' if data.get('status') == 'ok' else 'unavailable'
         limits = [
@@ -607,6 +608,9 @@ class Handler(BaseHTTPRequestHandler):
                 except ValueError as ve:
                     return self.reply(400, {'error': str(ve)})
                 status_code = 200 if envelope.get('status') == 'ok' else 503
+                data = envelope['data']
+                if 'INVALID_TASK_STATE' in (data.get('reason'), data.get('error')):
+                    status_code = 400
                 return self.reply(status_code, envelope)
             prefix='/api/v1/operations/'
             if not self.path.startswith(prefix): return self.reply(404,{'error':'not found'})

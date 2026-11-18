@@ -1,0 +1,45 @@
+{
+  "skills": [
+    {
+      "id": "skill:giant",
+      "resource_id": "giant",
+      "score": 0.95,
+      "recommended": true,
+      "reason": "RECOMMENDED",
+      "body_bytes": 1550000,
+      "role": null,
+      "dependencies": [
+        "skill:dependency"
+      ]
+    },
+    {
+      "id": "skill:dependency",
+      "resource_id": "dependency",
+      "score": 0.85,
+      "recommended": false,
+      "reason": "ALTERNATIVE",
+      "body_bytes": 500,
+      "role": null,
+      "dependencies": []
+    }
+  ],
+  "prompts": [
+    {
+      "id": "prompt:giant",
+      "resource_id": "giant",
+      "score": 0.94,
+      "recommended": true,
+      "reason": "RECOMMENDED",
+      "body_bytes": 600,
+      "role": "task",
+      "dependencies": []
+    }
+  ],
+  "excluded": [
+    {
+      "id": "skill:blocked",
+      "reason": "DEPENDENCY_DENIED",
+      "related_id": "skill:private"
+    }
+  ]
+}
