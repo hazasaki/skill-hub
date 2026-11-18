@@ -54,3 +54,7 @@ python -B -m unittest discover -s src/hub-dashboard -q
 python -B -m unittest discover -s deploy/hub-dashboard -q
 node src/hub-dashboard/test_intake_ui.js
 ```
+
+### Routing compatibility
+
+The bundled no-key catalog supports browsing, search and resource details. Router Studio requests model scoring only when explicitly submitted. It needs a configured Hub that exposes `POST /route_task`; the standalone catalog quickstart can run without that endpoint. A compatible response may include a structured task state and a choice pool. “Đề xuất” marks a recommendation and “Đã nạp” requires a matching load receipt. Dashboard catalog details remain bounded previews. The routing adapter requests full results and rejects deferred transport or JSON over 64 MiB. The existing credential redaction still applies to displayed text.

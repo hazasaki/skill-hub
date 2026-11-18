@@ -199,7 +199,7 @@ async function ensureCsrfToken(force = false) {
         state.csrfToken = json.data.csrf_token;
         const badge = document.getElementById('csrf-badge');
         if (badge) {
-          badge.textContent = `CSRF: ${state.csrfToken.slice(0, 8)}… Sẵn sàng`;
+          badge.textContent = 'CSRF: Sẵn sàng';
           badge.className = 'badge badge-alive';
         }
       }
@@ -248,6 +248,9 @@ async function apiFetch(endpoint, options = {}) {
       const errJson = await resp.json();
       if (errJson) {
         errMsg = errJson.error || errJson.data?.reason || errJson.data?.error || errJson.message || errMsg;
+        if (errMsg === 'INVALID_TASK_STATE' && typeof errJson.data?.detail === 'string') {
+          errMsg += ': ' + errJson.data.detail;
+        }
       }
     } catch (e) {
       // ignore json parse error
@@ -1227,15 +1230,36 @@ function triggerOverviewQuickRoute(taskText) {
   runRouteTaskStudio();
 }
 
+const routeContextFields = ['current_step','desired_output','artifact_types','available_tools','constraints','loaded_skill_ids_and_versions','explicit_skill_ids'];
+function readRouteContext() {
+  const result = {};
+  for (const key of routeContextFields) {
+    const value = document.getElementById('route-context-' + key)?.value || '';
+    if (!value.trim()) continue;
+    if (key === 'loaded_skill_ids_and_versions') {
+      const parsed = JSON.parse(value);
+      if (parsed !== null && !Array.isArray(parsed)) throw new Error('Tài nguyên đã nạp phải là mảng JSON hoặc null');
+      result[key] = parsed;
+    } else if (['current_step','desired_output'].includes(key)) result[key] = value;
+    else result[key] = value.split(/\r?\n/).filter(line => line.trim());
+  }
+  return Object.keys(result).length ? result : null;
+}
+
+let routeStudioRequest = 0;
+
 async function runRouteTaskStudio() {
   const inputEl = document.getElementById('route-task-input');
-  const stateText = inputEl ? inputEl.value.trim() : '';
+  const stateText = inputEl ? inputEl.value : '';
   const errBox = document.getElementById('route-studio-error');
   const resultsBox = document.getElementById('route-studio-results');
   const loadingBox = document.getElementById('route-studio-loading');
   const loadingText = document.getElementById('route-studio-loading-text');
 
-  if (!stateText) {
+  const request = ++routeStudioRequest;
+  if (loadingBox) loadingBox.hidden = true;
+
+  if (!stateText.trim()) {
     if (errBox) {
       errBox.textContent = 'Vui lòng nhập mô tả tác vụ (Task State) để tiến hành kiểm thử định tuyến.';
       errBox.hidden = false;
@@ -1244,6 +1268,19 @@ async function runRouteTaskStudio() {
     return;
   }
 
+  const oldContext = document.getElementById('route-normalized-context');
+  if (oldContext) oldContext.hidden = true;
+  let taskState;
+  try { taskState = readRouteContext(); } catch (error) {
+    if (errBox) { errBox.textContent = error.message; errBox.hidden = false; }
+    return;
+  }
+  const contextIdentity = JSON.stringify(taskState);
+  const isCurrent = () => request === routeStudioRequest && inputEl.value === stateText &&
+    (() => { try { return JSON.stringify(readRouteContext()) === contextIdentity; } catch { return false; } })() &&
+    (document.getElementById('route-studio-mode')?.value || 'tempr') === mode &&
+    Boolean(document.getElementById('route-include-graph')?.checked) === includeGraph &&
+    ((document.getElementById('route-task-id-input')?.value || '').trim() || null) === taskId;
   const mode = document.getElementById('route-studio-mode')?.value || 'tempr';
   const includeGraph = Boolean(document.getElementById('route-include-graph')?.checked);
   const taskId = (document.getElementById('route-task-id-input')?.value || '').trim() || null;
@@ -1261,7 +1298,9 @@ async function runRouteTaskStudio() {
 
   try {
     if (mode === 'semantic') {
+      if (taskState !== null) throw new Error('Ngữ cảnh bổ sung dùng với TEMPR hoặc metadata; semantic chỉ tìm kiếm văn bản.');
       const resp = await apiFetch(`semantic?q=${encodeURIComponent(stateText)}&limit=25`);
+      if (!isCurrent()) return;
       const data = resp.data || resp || {};
       renderSemanticStudioResults(data, stateText);
     } else {
@@ -1269,15 +1308,18 @@ async function runRouteTaskStudio() {
         method: 'POST',
         body: {
           state: stateText,
+          ...(taskState === null ? {} : {task_state: taskState}),
           retrieval_mode: mode,
           include_graph: includeGraph,
           task_id: taskId
         }
       });
+      if (!isCurrent()) return;
       const data = resp.data || resp || {};
       renderRouteTaskStudioResults(data);
     }
   } catch (err) {
+    if (!isCurrent()) return;
     if (errBox) {
       const isBusy = (err.message || '').includes('busy') || (err.message || '').includes('503') || (err.message || '').includes('ROUTER_BUSY');
       const hint = isBusy ? ' — Máy chủ định tuyến đang bận hoặc quá tải admission (hàng đợi 0.5s). Vui lòng thử lại sau giây lát hoặc chuyển sang Chế độ truy xuất "metadata".' : '';
@@ -1285,11 +1327,65 @@ async function runRouteTaskStudio() {
       errBox.hidden = false;
     }
   } finally {
-    if (loadingBox) loadingBox.hidden = true;
+    if (loadingBox && request === routeStudioRequest) loadingBox.hidden = true;
   }
 }
 
+function renderRouteChoicePool(data) {
+  const panel = document.getElementById('route-choice-pool');
+  const items = document.getElementById('route-choice-items');
+  if (!panel || !items) return;
+  const pool = data?.choice_pool;
+  const visible = Array.isArray(pool?.skills) && Array.isArray(pool?.prompts) &&
+    Array.isArray(pool?.excluded);
+  panel.hidden = !visible;
+  items.replaceChildren();
+  if (!visible) return;
+
+  const loaded = new Set((Array.isArray(data.loads?.loaded) ? data.loads.loaded : [])
+    .flatMap(receipt => {
+      const kind = receipt?.kind || receipt?.type;
+      if (!['skill', 'prompt'].includes(kind) || typeof receipt.id !== 'string' || !receipt.id) return [];
+      return [receipt.id.startsWith(kind + ':') ? receipt.id : kind + ':' + receipt.id];
+    }));
+  const choiceRows = [...pool.skills, ...pool.prompts];
+  for (const choice of choiceRows) {
+    if (typeof choice?.id !== 'string' || !/^(skill|prompt):.+/.test(choice.id)) continue;
+    const kind = choice.id.split(':', 1)[0];
+    const card = document.createElement('div');
+    card.className = 'loaded-resource-card';
+    const recommendation = choice.recommended === true ? 'Đề xuất' :
+      choice.recommended === false ? 'Phương án khác' : 'Chưa rõ đề xuất';
+    const dependencies = Array.isArray(choice.dependencies) ? choice.dependencies.join(', ') : '';
+    card.innerHTML = `
+      <strong>${escapeHtml(choice.id)}</strong>
+      <div class="text-xs">${recommendation} · ${loaded.has(choice.id) ? 'Đã nạp' : 'Chưa nạp'}</div>
+      <div class="text-xs text-muted">Lý do: ${escapeHtml(choice.reason)}</div>
+      ${dependencies ? `<div class="text-xs">Phụ thuộc: ${escapeHtml(dependencies)}</div>` : ''}
+      ${choice.role ? `<div class="text-xs">Vai trò: ${escapeHtml(choice.role)}</div>` : ''}
+      ${Number.isFinite(choice.body_bytes) ? `<div class="text-xs">${choice.body_bytes} byte</div>` : ''}
+      <button type="button" class="btn btn-subtle btn-xs">Mở ngăn Chi tiết</button>`;
+    card.querySelector('button').addEventListener('click', () => openResourceInspector(choice.resource_id, kind));
+    items.appendChild(card);
+  }
+  for (const exclusion of pool.excluded) {
+    if (typeof exclusion?.id !== 'string') continue;
+    const row = document.createElement('div');
+    row.className = 'text-xs text-muted';
+    row.textContent = `Không vào danh sách: ${exclusion.id} · ${exclusion.reason}` +
+      (exclusion.related_id ? ` · ${exclusion.related_id}` : '');
+    items.appendChild(row);
+  }
+  if (!items.childElementCount) items.textContent = 'Không có tài nguyên trong danh sách này.';
+}
+
 function renderRouteTaskStudioResults(data) {
+  renderRouteChoicePool(data);
+  const context = document.getElementById('route-normalized-context');
+  if (context) {
+    context.hidden = !data.task_state;
+    context.textContent = data.task_state ? JSON.stringify({task_state: data.task_state, task_state_sha256: data.task_state_sha256}, null, 2) : '';
+  }
   const resultsBox = document.getElementById('route-studio-results');
   if (!resultsBox) return;
 
@@ -1307,7 +1403,7 @@ function renderRouteTaskStudioResults(data) {
   if (semanticEl) semanticEl.hidden = true;
 
   // 1. Decision Summary Banner
-  const outcomeRaw = data.outcome || 'SELECTED';
+  const outcomeRaw = data.outcome || 'UNKNOWN';
   const { text: outcomeText, badgeClass: outcomeBadgeClass } = formatStudioOutcome(outcomeRaw);
   const outcomeBadgeEl = document.getElementById('decision-outcome-badge');
   if (outcomeBadgeEl) {
@@ -1413,7 +1509,7 @@ function renderRouteTaskStudioResults(data) {
   if (loadedCardsGrid) {
     loadedCardsGrid.innerHTML = '';
     if (totalLoaded === 0 && deferredList.length === 0) {
-      loadedCardsGrid.innerHTML = '<div class="text-muted text-sm p-sm">Không có tài nguyên nào đạt ngưỡng nạp (Skill &gt; 0.80, Prompt &gt;= 0.75).</div>';
+      loadedCardsGrid.innerHTML = '<div class="text-muted text-sm p-sm">Lượt này chưa nạp nội dung tài nguyên.</div>';
     } else {
       skillsList.forEach(item => {
         const card = createLoadedResourceCard(item, 'skill');
@@ -1470,7 +1566,7 @@ function createLoadedResourceCard(item, kind) {
     <div class="text-xs text-muted">${escapeHtml(desc)}</div>
     <div class="resource-meta-row text-xs">
       <span class="font-mono text-muted" title="${escapeHtml(sha)}">SHA: ${escapeHtml(sha ? sha.slice(0, 12) + '…' : '—')}</span>
-      <button type="button" class="btn btn-subtle btn-xs btn-inspect-loaded" data-id="${escapeHtml(name)}" data-kind="${escapeHtml(kind)}">
+      <button type="button" class="btn btn-subtle btn-xs btn-inspect-loaded" data-id="${escapeHtml(item.id || name)}" data-kind="${escapeHtml(kind)}">
         Mở ngăn Chi tiết
       </button>
     </div>
@@ -1489,6 +1585,7 @@ function createDeferredResourceCard(item) {
   card.className = 'loaded-resource-card';
   const name = item.name || item.id || 'unknown';
   const reason = item.reason || 'Hoãn nạp theo chính sách ngữ cảnh';
+  const kind = item.kind === 'prompt' || item.type === 'prompt' || item.id?.startsWith('prompt:') ? 'prompt' : 'skill';
 
   card.innerHTML = `
     <div class="resource-header">
@@ -1500,7 +1597,7 @@ function createDeferredResourceCard(item) {
     <div class="text-xs text-muted">${escapeHtml(reason)}</div>
     <div class="resource-meta-row text-xs mt-xs">
       <span class="text-warning">Deferred by context budget</span>
-      <button type="button" class="btn btn-subtle btn-xs btn-inspect-loaded" data-id="${escapeHtml(name)}" data-kind="skill">
+      <button type="button" class="btn btn-subtle btn-xs btn-inspect-loaded" data-id="${escapeHtml(item.id || name)}" data-kind="${kind}">
         Mở ngăn Chi tiết
       </button>
     </div>
@@ -1563,7 +1660,7 @@ function renderRouteScoresTable() {
       <td>${scoreMeter}</td>
       <td>${statusBadge}</td>
       <td>
-        <button type="button" class="btn btn-subtle btn-xs btn-inspect-candidate" data-id="${escapeHtml(name)}" data-kind="${escapeHtml(kind)}">
+        <button type="button" class="btn btn-subtle btn-xs btn-inspect-candidate" data-id="${escapeHtml(item.id || name)}" data-kind="${escapeHtml(kind)}">
           Chi tiết
         </button>
       </td>
@@ -1579,6 +1676,7 @@ function renderRouteScoresTable() {
 }
 
 function renderSemanticStudioResults(data, queryText) {
+  renderRouteChoicePool(null);
   const resultsBox = document.getElementById('route-studio-results');
   if (!resultsBox) return;
 
@@ -2883,6 +2981,8 @@ function closeInspectorDrawer() {
 }
 
 async function openResourceInspector(resourceId, kind) {
+  if (typeof resourceId !== 'string' || !resourceId) return;
+  if (resourceId.startsWith(kind + ':')) resourceId = resourceId.slice(kind.length + 1);
   openInspectorDrawer();
   const nameEl = document.getElementById('inspector-name');
   const eyebrowEl = document.getElementById('inspector-eyebrow');
@@ -3755,8 +3855,17 @@ function setupEventListeners() {
   const btnClearRoute = document.getElementById('btn-clear-route-task');
   if (btnClearRoute) {
     btnClearRoute.addEventListener('click', () => {
+      ++routeStudioRequest;
+      renderRouteChoicePool(null);
+      document.getElementById('route-studio-loading').hidden = true;
       const input = document.getElementById('route-task-input');
       if (input) input.value = '';
+      for (const key of routeContextFields) {
+        const field = document.getElementById('route-context-' + key);
+        if (field) field.value = '';
+      }
+      const context = document.getElementById('route-normalized-context');
+      if (context) { context.hidden = true; context.textContent = ''; }
       const taskIdInput = document.getElementById('route-task-id-input');
       if (taskIdInput) taskIdInput.value = '';
       const errBox = document.getElementById('route-studio-error');
@@ -3885,7 +3994,7 @@ async function init() {
         state.csrfToken = configResp.data.csrf_token;
         const badge = document.getElementById('csrf-badge');
         if (badge) {
-          badge.textContent = `CSRF: ${state.csrfToken.slice(0, 8)}… Sẵn sàng`;
+          badge.textContent = 'CSRF: Sẵn sàng';
           badge.className = 'badge badge-alive';
         }
       }

@@ -961,6 +961,65 @@ class BackendTests(unittest.TestCase):
             self.assertFalse(caps['route.task']['supported'])
             self.assertIn('unavailable or warming up', caps['route.task']['reason'])
 
+    def test_context28_forwarding_preserves_state_and_unknowns(self):
+        from unittest.mock import patch
+        text = '  Không xóa dữ liệu. 😀\n' * 1000
+        context = {'constraints': ['không xóa', 'giữ nguyên  '],
+                   'available_tools': [], 'artifact_types': None,
+                   'loaded_skill_ids_and_versions': [{'id': 'skill:a', 'version': '2'}]}
+        with patch('http.client.HTTPConnection') as conn:
+            response = conn.return_value.getresponse.return_value
+            response.status = 200
+            response.read.return_value = json.dumps({'status': 'ok', 'outcome': 'ABSTAIN_LOW_CONFIDENCE',
+                'task_state': context, 'task_state_sha256': 'a'*64}).encode()
+            for supplied in ({}, {'task_state': None}, {'task_state': context}):
+                data, _ = self.app.sources.route_task(text, **supplied)
+                sent = json.loads(conn.return_value.request.call_args.kwargs['body'])
+                self.assertEqual(sent['state'], text)
+                self.assertEqual('task_state' in sent, 'task_state' in supplied)
+                if supplied: self.assertEqual(sent['task_state'], supplied['task_state'])
+                self.assertEqual(data['task_state'], context)
+                self.assertEqual(data['task_state_sha256'], 'a'*64)
+                self.assertEqual(data['outcome'], 'ABSTAIN_LOW_CONFIDENCE')
+            with patch.object(self.app.sources, 'route_task', return_value=({'status': 'ok'}, [])) as forwarded:
+                self.app.route_task({'state': text, 'task_state': context})
+                self.assertEqual(forwarded.call_args.kwargs['task_state'], context)
+                self.assertEqual(forwarded.call_args.kwargs['state'], text)
+            for invalid in ([], '', True, 7):
+                with self.assertRaises(ValueError): self.app.sources.route_task(text, task_state=invalid)
+            for invalid in ({}, [], True, None, '  '):
+                with self.assertRaises(ValueError): self.app.sources.route_task(invalid)
+            response.status = 400
+            response.read.return_value = json.dumps({'error': 'INVALID_TASK_STATE', 'detail': 'constraints: wrong type'}).encode()
+            data, _ = self.app.sources.route_task('state', task_state={'constraints': 4})
+            self.assertEqual(data['error'], 'INVALID_TASK_STATE')
+            self.assertEqual(data['detail'], 'constraints: wrong type')
+            self.assertNotEqual(data['outcome'], 'SELECTED')
+
+    def test_route_task_full_response_preserves_large_body_and_pool(self):
+        body = 'Kiểm thử tiếng Việt 🧪.\n' * 50000
+        pool = json.loads(Path(__file__).with_name('choice_pool_fixture.json').read_text(encoding='utf-8'))
+        pool['skills'][0]['body_bytes'] = len(body.encode('utf-8'))
+        payload = {
+            'status': 'ok', 'outcome': 'SELECTED', 'choice_pool': pool,
+            'loads': {'loaded': [{'id': 'skill:giant', 'type': 'skill', 'body': body}]},
+        }
+        raw = json.dumps(payload, ensure_ascii=False).encode('utf-8')
+        self.assertGreater(len(raw), 1048576)
+        with patch('http.client.HTTPConnection') as conn:
+            response = conn.return_value.getresponse.return_value
+            response.status = 200
+            response.read.side_effect = [raw, b'{"transport":{"complete":false}}']
+            data, _ = self.app.sources.route_task('Read the complete fixture')
+            sent = json.loads(conn.return_value.request.call_args.kwargs['body'])
+            self.assertEqual(sent['response_mode'], 'full')
+            response.read.assert_called_with(64 * 1024 * 1024 + 1)
+            self.assertEqual(data['loads']['skills'][0]['body'], body)
+            self.assertEqual(data['choice_pool'], pool)
+            self.assertEqual(data['loads']['loaded'][0]['id'], 'skill:giant')
+            data, _ = self.app.sources.route_task('Read the complete fixture')
+            self.assertIn('ROUTE_RESPONSE_REQUIRES_FULL_FETCH', data['reason'])
+
     def test_route_task_real_elephant_runtime_payload_normalization(self):
         mock_scores = {f"skill:tool-{i:03d}": round(0.1 + (i * 0.005), 4) for i in range(118)}
         mock_scores["skill:git-add"] = 0.985

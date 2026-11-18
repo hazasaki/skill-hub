@@ -24,6 +24,7 @@ GRAPH='skill-hub/state/graph-projection.json'
 AUDIT='skill-hub/state/AUDIT.json'
 EMPTY_BODY_SHA = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
 HEALTH={'skill-hub':('127.0.0.1',8765,'/health')}
+_TASK_STATE_UNSET = object()
 ROUTE_TASK_TARGET=('127.0.0.1',8765,'/route_task')
 
 _QUALITY_SCAN_SCHEMA_VERSION = 4
@@ -378,10 +379,12 @@ class Sources:
             return [self._sanitize(v) for v in val]
         return val
 
-    def route_task(self, state, retrieval_mode='tempr', include_graph=False, task_id=None):
+    def route_task(self, state, retrieval_mode='tempr', include_graph=False, task_id=None, task_state=_TASK_STATE_UNSET):
         if not isinstance(state, str) or not state.strip():
             raise ValueError('state is required')
-        clean_state = str(state).strip()[:4000]
+        clean_state = state
+        if task_state is not _TASK_STATE_UNSET and task_state is not None and not isinstance(task_state, dict):
+            raise ValueError('INVALID_TASK_STATE: task_state must be an object or null')
         if retrieval_mode not in ('tempr', 'metadata'):
             raise ValueError('retrieval_mode must be tempr or metadata')
 
@@ -402,14 +405,20 @@ class Sources:
         try:
             req_payload = {
                 'state': clean_state,
+                'response_mode': 'full',
                 'retrieval_mode': retrieval_mode,
                 'include_graph': bool(include_graph),
                 'task_id': task_id
             }
+            if task_state is not _TASK_STATE_UNSET:
+                req_payload['task_state'] = task_state
             req_body = json.dumps(req_payload).encode('utf-8')
             con.request('POST', path, body=req_body, headers={'Content-Type': 'application/json'})
             response = con.getresponse()
-            raw = response.read(1048576)
+            # Reject oversized full results instead of parsing a truncated prefix.
+            raw = response.read(64 * 1024 * 1024 + 1)
+            if len(raw) > 64 * 1024 * 1024:
+                raise ValueError('ROUTE_RESPONSE_TOO_LARGE: full Dashboard response exceeds 64 MiB')
 
             try:
                 raw_body = json.loads(raw)
@@ -443,6 +452,12 @@ class Sources:
                     'error': f'HTTP {response.status}: unparseable response from router'
                 }, sources
 
+            transport = raw_body.get('transport')
+            if ((isinstance(transport, dict) and transport.get('complete') is False)
+                    or any(isinstance(raw_body.get(key), dict)
+                           and raw_body[key].get('delivery') == 'DEFERRED_FULL_FETCH'
+                           for key in ('retrieval', 'loads', 'selected', 'coverage'))):
+                raise ValueError('ROUTE_RESPONSE_REQUIRES_FULL_FETCH: Dashboard requested full mode')
             sanitized_body = self._sanitize(raw_body)
             backend_status = sanitized_body.get('status')
             if response.status == 200:
@@ -739,6 +754,8 @@ class Sources:
                 'status': calc_status,
                 'schema_version': sanitized_body.get('schema_version', 'openbot.elephant.route_task.v2'),
                 'query': query_dict,
+                'task_state': sanitized_body.get('task_state'),
+                'task_state_sha256': sanitized_body.get('task_state_sha256'),
                 'outcome': outcome_val,
                 'action': action_val,
                 'trigger': sanitized_body.get('trigger'),
@@ -759,8 +776,11 @@ class Sources:
                 'scores_truncated': scores_truncated,
                 'telemetry': sanitized_body.get('telemetry'),
                 'limits': sanitized_body.get('limits'),
-                'error': sanitized_body.get('error')
+                'error': sanitized_body.get('error'),
+                'detail': sanitized_body.get('detail')
             }
+            if 'choice_pool' in sanitized_body:
+                data['choice_pool'] = sanitized_body['choice_pool']
             return data, sources
         except (OSError, ValueError) as exc:
             return {
@@ -769,7 +789,8 @@ class Sources:
                 'query': query_dict,
                 'outcome': None,
                 'trigger': None,
-                'reason': 'Skill Hub router backend unavailable on port 8765',
+                'reason': str(exc) if isinstance(exc, ValueError) and str(exc).startswith('ROUTE_RESPONSE_')
+                    else 'Skill Hub router backend unavailable on port 8765',
                 'fallback': None,
                 'fallback_discovery': None,
                 'elapsed_ms': None,
