@@ -46,9 +46,37 @@
   border-color: var(--accent);
 }
 
+.graph-result-bar,
+.graph-pagination,
+.graph-page-jump {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.graph-result-bar {
+  justify-content: space-between;
+  margin-block: 12px;
+}
+
 .graph-status {
-  margin: 12px 0;
+  margin: 0;
   color: var(--muted);
+}
+
+.graph-pagination [aria-disabled="true"] {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.graph-page-jump input {
+  inline-size: 5.5rem;
+}
+
+.graph-page-jump label,
+#graph-page-text {
+  font-size: 0.9rem;
 }
 
 #graph-results {
@@ -106,6 +134,11 @@
   stroke-width: 1.5;
 }
 
+.graph-map-node.is-context rect {
+  stroke: var(--muted);
+  stroke-dasharray: 5 3;
+}
+
 .graph-map-node:is(:hover, :focus-visible, [aria-pressed="true"]) rect {
   fill: var(--card-hover);
   stroke: var(--accent);
@@ -125,7 +158,8 @@
   pointer-events: none;
 }
 
-.graph-map-edge {
+.graph-map-edge,
+.graph-key-line {
   fill: none;
   color: var(--muted);
   stroke: currentColor;
@@ -142,15 +176,33 @@
   opacity: 1;
 }
 
-.graph-map-edge.alias_of,
-.graph-key .alias {
+:is(.graph-map-edge, .graph-key-line).alias_of {
   color: var(--graph-alias);
 }
 
-.graph-map-edge.installed_skill,
-.graph-key .install {
+:is(.graph-map-edge, .graph-key-line).installed_skill {
   color: var(--graph-install);
   stroke-dasharray: 5 3;
+}
+
+:is(.graph-map-edge, .graph-key-line).provides {
+  color: var(--accent);
+  stroke-dasharray: 9 3;
+}
+
+:is(.graph-map-edge, .graph-key-line).specializes {
+  color: var(--accent);
+  stroke-dasharray: 2 3;
+}
+
+:is(.graph-map-edge, .graph-key-line).uses_tool,
+:is(.graph-map-edge, .graph-key-line).requires_tool {
+  color: var(--warning-text);
+  stroke-dasharray: 8 3 2 3;
+}
+
+:is(.graph-map-edge, .graph-key-line).depends_on {
+  stroke-dasharray: 2 2 2 5;
 }
 
 .graph-key {
@@ -161,14 +213,10 @@
 
 .graph-key-swatch {
   display: inline-block;
-  width: 20px;
+  width: 24px;
+  height: 6px;
   margin-inline-end: 4px;
-  border-top: 2px solid currentColor;
   vertical-align: 0.2em;
-}
-
-.graph-key .install {
-  border-top-style: dashed;
 }
 
 .graph-details,
@@ -204,8 +252,35 @@
   cursor: pointer;
 }
 
+.graph-list-node.is-context {
+  border-style: dashed;
+}
+
+.graph-list-node.is-context:not([aria-pressed="true"]) {
+  border-color: var(--muted);
+}
+
 .graph-list-node:hover {
   background: var(--card-hover);
+}
+
+.graph-list-group {
+  margin-block-start: 6px;
+  color: var(--muted);
+}
+
+.graph-node-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 0.875rem;
+}
+
+.graph-context-tag {
+  padding-inline: 6px;
+  border: 1px dashed var(--muted);
+  border-radius: 4px;
 }
 
 .graph-list-node span,

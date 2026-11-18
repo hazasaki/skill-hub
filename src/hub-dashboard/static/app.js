@@ -3695,7 +3695,7 @@ function stopAutoRefresh() {
 
 async function init() {
   setupEventListeners();
-  graphExplorer.setup(apiFetch, openGraphNodeInspector);
+  graphExplorer.setup(apiFetch, openGraphNodeInspector, () => state.owned?.settings?.graph_limit);
   setupInspector();
   setupQuarantineModal();
   setupQualityWorkspace();
