@@ -776,7 +776,7 @@ def _warm_runtime_caches(hub_path: Path) -> dict:
         'semantic_vectors': 0,
         'graph_loaded': False,
         'temporal_loaded': False,
-        'gpu_resident': False,
+        'gpu_resident': None,
         'errors': [],
     }
     try:
@@ -824,10 +824,8 @@ def _warm_runtime_caches(hub_path: Path) -> dict:
                             sem_cfg.get('model') or retrieval_semantic.DEFAULT_MODEL,
                             timeout=float(sem_cfg.get('timeout_seconds', 10.0)),
                         )
-                        if isinstance(residency_meta, dict):
-                            status['gpu_resident'] = bool(residency_meta.get('gpu_resident', False))
-                        else:
-                            status['gpu_resident'] = True
+                        if isinstance(residency_meta, dict) and type(residency_meta.get('gpu_resident')) is bool:
+                            status['gpu_resident'] = residency_meta['gpu_resident']
                     except Exception as exc:
                         status['errors'].append(f'tempr: {type(exc).__name__}: {exc}')
                 import retrieval_projection

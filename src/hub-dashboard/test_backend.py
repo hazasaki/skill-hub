@@ -689,7 +689,7 @@ class BackendTests(unittest.TestCase):
             self.assertIn('limit=50', req_call[1])
             self.assertIn('q=' + ('a' * 200), req_call[1])
 
-            # Missing GPU observation defaults to False (no false True default)
+            # Missing availability, model and score are unknown.
             resp.read.return_value = json.dumps({
                 'status': 'ok',
                 'hits': [{'id': 'skill:search', 'rank': 1}],
@@ -697,7 +697,10 @@ class BackendTests(unittest.TestCase):
             }).encode('utf-8')
             no_gpu_res = self.app.sources.semantic_search('query')
             self.assertEqual(no_gpu_res['status'], 'ok')
-            self.assertFalse(no_gpu_res['gpu_resident'])
+            self.assertIsNone(no_gpu_res['gpu_resident'])
+            self.assertIsNone(no_gpu_res['model'])
+            self.assertIsNone(no_gpu_res['elapsed_ms'])
+            self.assertIsNone(no_gpu_res['hits'][0]['raw_score'])
 
             # Backend error handling: 503 degraded
             resp.status = 503
@@ -706,7 +709,7 @@ class BackendTests(unittest.TestCase):
             self.assertEqual(err_res['status'], 'degraded')
             self.assertEqual(err_res['error'], 'engine not ready')
             self.assertEqual(err_res['hits'], [])
-            self.assertFalse(err_res['gpu_resident'])
+            self.assertIsNone(err_res['gpu_resident'])
 
             # Backend error handling: 504 timeout honored and not masked as ok
             resp.status = 504
@@ -731,7 +734,7 @@ class BackendTests(unittest.TestCase):
             caps = {c['operation']: c for c in self.app.capabilities()}
             self.assertTrue(caps['semantic.search']['supported'])
             self.assertEqual(caps['semantic.search']['risk'], 'read-only')
-            self.assertIn('Live dGPU semantic retrieval connected', caps['semantic.search']['reason'])
+            self.assertIn('reports GPU residency', caps['semantic.search']['reason'])
             # Protected operations remain unsupported
             self.assertFalse(caps['agent.edit']['supported'])
             self.assertEqual(caps['agent.edit']['risk'], 'native-write')
@@ -743,7 +746,14 @@ class BackendTests(unittest.TestCase):
             caps = {c['operation']: c for c in self.app.capabilities()}
             self.assertTrue(caps['semantic.search']['supported'])
             self.assertEqual(caps['semantic.search']['risk'], 'read-only')
-            self.assertIn('shared backend query ready (CPU/RAM coordinated pipeline, dGPU preferred)', caps['semantic.search']['reason'])
+            self.assertIn('reports no GPU residency', caps['semantic.search']['reason'])
+
+        with patch.object(self.app.sources, 'health', return_value={
+            'status': 'observed', 'fields': {'warmup': {'ok': True}}
+        }):
+            cap = next(c for c in self.app.capabilities() if c['operation'] == 'semantic.search')
+            self.assertTrue(cap['supported'])
+            self.assertIn('GPU residency is unknown', cap['reason'])
 
         # Case 3: Backend warmup incomplete -> supported=False
         with patch.object(self.app.sources, 'health', return_value={
@@ -785,26 +795,49 @@ class BackendTests(unittest.TestCase):
         text = 'instruction body with unicode 🧪'
         raw = text.encode('utf-8')
         digest = hashlib.sha256(raw).hexdigest()
-        receipt = {'body': text, 'body_raw_sha256': digest, 'body_bytes': len(raw), 'load_verified': True}
+        receipt = {'id': 'fixture', 'type': 'prompt', 'body': text, 'body_raw_sha256': digest,
+                   'body_bytes': len(raw), 'load_verified': True}
 
-        def load(pin=digest):
+        def load(pin=digest, identifier='prompt:fixture', bundle=None):
             with patch('sources.http.client.HTTPConnection') as connection:
-                responses = [MagicMock(status=status) for status in (200, 202, 200)]
+                responses = [MagicMock(status=status) for status in (200, 202, 200, 200)]
                 for response in responses:
                     response.getheader.return_value = None
                     response.read.return_value = b'{}'
-                responses[-1].read.return_value = json.dumps({
+                responses[0].getheader.side_effect = lambda name: 'fixture-session' if name == 'Mcp-Session-Id' else None
+                responses[2].read.return_value = json.dumps({
                     'result': {'content': [{'text': json.dumps(receipt)}]},
                 }).encode()
                 connection.return_value.getresponse.side_effect = responses
-                return source.load_resource_choice('prompt:fixture', pin)
+                try:
+                    return source.load_resource_choice(identifier, pin, bundle_sha256=bundle)
+                finally:
+                    connection.return_value.request.assert_called_with(
+                        'DELETE', '/mcp', headers={'Mcp-Session-Id': 'fixture-session'})
 
         self.assertEqual(load()['body'], text)
         self.assertTrue(load()['verified_in_client'])
+        self.assertEqual(load()['resource_id'], 'prompt:fixture')
         with self.assertRaisesRegex(ValueError, 'BODY_HASH_MISMATCH'):
             load('0' * 64)
         with patch.object(source, 'clean', side_effect=lambda value: '[FILTERED]' if value == text else value):
             self.assertEqual(load(), {'error': 'BODY_REDACTED'})
+        receipt['body_bytes'] = len(raw) - 1
+        with self.assertRaisesRegex(ValueError, 'BODY_SIZE_MISMATCH'):
+            load()
+        receipt['body_bytes'] = len(raw)
+        receipt['id'] = 'different'
+        with self.assertRaisesRegex(ValueError, 'BODY_IDENTITY_MISMATCH'):
+            load()
+        receipt.update(id='fixture', type='skill', bundle_sha256='f' * 64)
+        with self.assertRaisesRegex(ValueError, 'BODY_BUNDLE_MISMATCH'):
+            load(identifier='skill:fixture', bundle='1' * 64)
+        self.assertEqual(load(identifier='skill:fixture', bundle='f' * 64)['resource_id'], 'skill:fixture')
+        receipt.update(load_verified=False, error='POLICY_DENIED')
+        refused = load(identifier='skill:fixture', bundle='f' * 64)
+        self.assertEqual(refused['error'], 'POLICY_DENIED')
+        self.assertNotIn('body', refused)
+        self.assertNotIn('verified_in_client', refused)
 
     def test_route_task_source_adapter_and_redaction(self):
         # 1. Validation errors
@@ -950,7 +983,7 @@ class BackendTests(unittest.TestCase):
                 self.assertEqual(envelope['data']['outcome'], 'SELECTED')
                 self.assertTrue(any('Interactive route_task' in lim for lim in envelope['limits']))
 
-            # 7. Router busy / unavailable -> 503
+            # 7. Router busy -> 429 with structured result
             mock_busy_data = {
                 'status': 'busy',
                 'outcome': 'ROUTER_BUSY',
@@ -958,8 +991,8 @@ class BackendTests(unittest.TestCase):
             }
             with patch.object(self.app.sources, 'route_task', return_value=(mock_busy_data, [])):
                 status, envelope = call('POST', '/api/v1/route_task', {'state': 'busy state'}, headers=valid_headers)
-                self.assertEqual(status, 503)
-                self.assertEqual(envelope['status'], 'unavailable')
+                self.assertEqual(status, 429)
+                self.assertEqual(envelope['status'], 'busy')
                 self.assertEqual(envelope['data']['status'], 'busy')
 
             # 8. Loopback Origin variations (localhost <-> 127.0.0.1) succeed
@@ -1206,10 +1239,10 @@ class BackendTests(unittest.TestCase):
 
             # Gap 5: provider enrichment
             prov = data['provider']
-            self.assertEqual(prov['model'], 'convaiinnovations/laya-typed-decisions')
+            self.assertNotIn('model', prov)
             self.assertEqual(prov['latency_ms'], 420.5)
 
-    def test_route_task_metadata_mode_engines_synthesis(self):
+    def test_route_task_metadata_mode_preserves_observations(self):
         mock_backend_response = {
             'status': 'ok',
             'schema_version': 'openbot.elephant.route_task.v2',
@@ -1235,15 +1268,9 @@ class BackendTests(unittest.TestCase):
             data, _ = self.app.sources.route_task('obscure search', retrieval_mode='metadata')
             self.assertEqual(data['status'], 'ok')
             ret = data['retrieval']
-            self.assertIn('engines', ret)
-            self.assertEqual(ret['engines']['keyword']['status'], 'OK')
-            self.assertEqual(ret['engines']['keyword']['hits'], 18)
-            self.assertEqual(ret['engines']['keyword']['count'], 18)
-            self.assertEqual(ret['engines']['keyword']['elapsed_ms'], 8.4)
-            self.assertEqual(ret['engines']['semantic']['status'], 'SKIPPED')
-            self.assertEqual(ret['engines']['semantic']['hits'], 0)
-            self.assertEqual(ret['engines']['graph']['status'], 'SKIPPED')
-            self.assertEqual(ret['engines']['temporal']['status'], 'SKIPPED')
+            self.assertNotIn('engines', ret)
+            self.assertEqual(ret['retrieved'], 18)
+            self.assertEqual(ret['fts_elapsed_ms'], 8.4)
 
             # Preserved existing provider model & latency_ms
             self.assertEqual(data['provider']['model'], 'custom-model')
@@ -1258,5 +1285,51 @@ class BackendTests(unittest.TestCase):
             self.assertEqual(len(result['cases']), 1)
             self.assertEqual(result['cases'][0]['expected_skill_families'], ('review-checklist',))
             search.assert_called_once_with('Review a small code change', 5)
+
+    def test_route_preserves_adaptive_menu_and_observed_deadline_evidence(self):
+        thresholds = {'skill': {'operator': '>=', 'value': .65}, 'prompt': {'operator': '>', 'value': .74}}
+        rounds = [{'cap': 24, 'attempted': 24, 'reason': 'Continue', 'next_cap': 48},
+                  {'cap': 48, 'attempted': 39, 'reason': 'Deadline', 'next_cap': None}]
+        payload = {
+            'outcome': 'SELECTED', 'partial': True, 'partial_reason': 'DEADLINE', 'trigger': 'DEADLINE',
+            'thresholds': thresholds, 'gpu_resident': 'false',
+            'selected': [{'id': 'skill:same'}],
+            'choice_pool': {'skills': [{'id': 'skill:same', 'recommended': True}],
+                            'prompts': [], 'excluded': [{'id': 'skill:denied', 'reason': 'POLICY_DENIED'}]},
+            'scores': {'skill:same': .65, 'prompt:same': .74, 'skill:denied': .9, 'skill:equal': .65,
+                       'skill:invalid': float('nan')},
+            'coverage': {'scored': 39, 'stop_reason': 'DEADLINE'},
+            'retrieval': {'adaptive_rounds': rounds, 'scoring_budget': {'round_caps': [24, 48, 96]},
+                          'engines': {'keyword': {'hits': 0, 'elapsed_ms': 0},
+                                      'temporal': {'status': 'UNAVAILABLE'}}},
+            'provider': {'requests': [{'latency_ms': 4.5}, {}]},
+        }
+        with patch('sources.http.client.HTTPConnection') as conn_cls:
+            response = conn_cls.return_value.getresponse.return_value
+            response.status = 200
+            response.read.return_value = json.dumps(payload).encode()
+            data, _ = self.app.sources.route_task('Review adaptive results')
+
+        self.assertTrue(data['partial'])
+        self.assertEqual(data['partial_reason'], 'DEADLINE')
+        self.assertEqual(data['coverage']['stop_reason'], 'DEADLINE')
+        self.assertIsNone(data['coverage']['retrieved'])
+        self.assertEqual(data['retrieval']['adaptive_rounds'], rounds)
+        self.assertEqual(data['thresholds'], thresholds)
+        self.assertEqual(data['loads']['skills'], [])
+        self.assertIsNone(data['gpu_resident'])
+        self.assertNotIn('model', data['provider'])
+        self.assertNotIn('latency_ms', data['provider'])
+        self.assertEqual(data['retrieval']['engines']['keyword']['elapsed_ms'], 0)
+        self.assertIsNone(data['retrieval']['engines']['temporal']['hits'])
+        scores = {row['id']: row for row in data['scores']}
+        self.assertEqual(scores['skill:same']['status'], 'offered')
+        self.assertEqual(scores['prompt:same']['status'], 'below_threshold')
+        self.assertEqual(scores['skill:denied']['status'], 'excluded')
+        self.assertEqual(scores['skill:equal']['status'], 'not_offered')
+        self.assertIsNone(scores['skill:invalid']['score'])
+        self.assertEqual(scores['skill:invalid']['status'], 'unknown')
+        json.dumps(data, allow_nan=False)
+
 
 if __name__=='__main__': unittest.main()

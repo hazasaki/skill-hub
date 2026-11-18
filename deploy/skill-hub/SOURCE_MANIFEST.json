@@ -167,7 +167,7 @@
     },
     {
       "file": "deploy/skill-hub/app/skill_mcp.py",
-      "sha256": "5e9efb96dcf160b50bbf882e30f0867458d48202614002647621a9ba960052f9"
+      "sha256": "f839a2da560417a26dd6e1209b7b9220f94ac87e38041357c98b5b40f1ccdc3d"
     },
     {
       "file": "deploy/skill-hub/app/skill_quality.py",

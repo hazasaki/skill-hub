@@ -249,6 +249,8 @@ async function apiFetch(endpoint, options = {}) {
     let errMsg = `HTTP ${resp.status} ${resp.statusText}`;
     try {
       const errJson = await resp.json();
+      if (errJson?.schema === 'skill-hub.dashboard.v1' && errJson.data &&
+          (endpoint === 'route_task' || endpoint.startsWith('semantic?'))) return errJson;
       if (errJson) {
         errMsg = errJson.error || errJson.data?.reason || errJson.data?.error || errJson.message || errMsg;
         if (errMsg === 'INVALID_TASK_STATE' && typeof errJson.data?.detail === 'string') {
@@ -900,47 +902,69 @@ function openGenericNodeInspector(node) {
 // 04: Routing Monitor & Interactive route_task Studio View
 // ----------------------------------------------------------------------------
 
+function routeText(en, vi) {
+  return document.documentElement?.lang?.toLowerCase().split('-')[0] === 'vi' ? vi : en;
+}
+const routerEnglish = new WeakMap();
+const routeContextFields = ['current_step','desired_output','artifact_types','available_tools','constraints','loaded_skill_ids_and_versions','explicit_skill_ids'];
+let routeStudioRequest = 0;
+let routeStudioResult = null;
+let routeStudioLoadingMode = null;
+let routeStudioError = null;
+
+function localizeRouterStudio() {
+  const fields = {'data-router-vi': 'textContent','data-router-vi-title': 'title',
+    'data-router-vi-placeholder': 'placeholder','data-router-vi-aria-label': 'aria-label','data-router-vi-task': 'data-task'};
+  document.querySelectorAll(Object.keys(fields).map(key => '[' + key + ']').join(',')).forEach(el => {
+    if (!routerEnglish.has(el)) routerEnglish.set(el, Object.keys(fields).filter(key => el.hasAttribute(key)).map(key => {
+      const target = fields[key];
+      return [key, target, target === 'textContent' ? el.textContent : el.getAttribute(target)];
+    }));
+    for (const [key, target, en] of routerEnglish.get(el)) {
+      const value = routeText(en, el.getAttribute(key));
+      if (target === 'textContent') el.textContent = value;
+      else el.setAttribute(target, value);
+    }
+  });
+  updateRouterControls();
+  if (routeStudioLoadingMode) updateRouterLoading(routeStudioLoadingMode);
+  if (routeStudioError) showRouterError(...routeStudioError);
+  if (routeStudioResult?.mode === 'semantic') renderSemanticStudioResults(routeStudioResult.data, routeStudioResult.query);
+  else if (routeStudioResult) renderRouteTaskStudioResults(routeStudioResult.data, routeStudioResult);
+}
+
 function scoreMeterClass(score) {
   if (score >= 0.8) return 'score-high';
   if (score >= 0.6) return 'score-medium';
   return 'score-low';
 }
-
-function formatStudioOutcome(outcome) {
-  switch (String(outcome || '').toUpperCase()) {
-    case 'SELECTED':
-    case 'OK':
-      return { text: 'ĐÃ CHỌN KỸ NĂNG (SELECTED)', badgeClass: 'badge-alive' };
-    case 'NO_SKILL':
-      return { text: 'KHÔNG CẦN KỸ NĂNG (NO_SKILL)', badgeClass: 'badge-subtle' };
-    case 'ABSTAIN_LOW_CONFIDENCE':
-      return { text: 'TỪ CHỐI DO ĐỘ TIN CẬY THẤP (ABSTAIN)', badgeClass: 'badge-warning' };
-    case 'ROUTER_ERROR':
-      return { text: 'LỖI ĐIỀU HƯỚNG (ROUTER_ERROR)', badgeClass: 'badge-blocked' };
-    case 'ROUTER_BUSY':
-      return { text: 'HỆ THỐNG BẬN (ROUTER_BUSY)', badgeClass: 'badge-blocked' };
-    default:
-      return { text: String(outcome || 'UNKNOWN'), badgeClass: 'badge-subtle' };
-  }
+function formatStudioOutcome(outcome, pool) {
+  const labels = {
+    SELECTED: [pool ? routeText('Menu ready', 'Đã có danh sách đề xuất') : routeText('Hub returned a result', 'Hub đã trả kết quả'), 'badge-alive'],
+    OK: [routeText('Result received', 'Đã nhận kết quả'), 'badge-alive'],
+    NO_SKILL: [routeText('No resources offered', 'Không có tài nguyên được đề xuất'), 'badge-subtle'],
+    ABSTAIN_LOW_CONFIDENCE: [routeText('Abstained · low confidence', 'Không đề xuất · độ tin cậy thấp'), 'badge-warning'],
+    ROUTER_ERROR: [routeText('Routing error', 'Lỗi định tuyến'), 'badge-blocked'],
+    ROUTER_BUSY: [routeText('Router busy', 'Bộ định tuyến đang bận'), 'badge-blocked']
+  };
+  const [text, badgeClass] = (Object.hasOwn(labels, outcome) ? labels[outcome] : null) || [outcome || routeText('Unknown', 'Chưa biết'), 'badge-subtle'];
+  return {text, badgeClass};
 }
 
 function triggerOverviewQuickRoute(taskText) {
   const text = (taskText || document.getElementById('overview-route-input')?.value || '').trim();
   if (!text) {
-    const ovInput = document.getElementById('overview-route-input');
-    if (ovInput) ovInput.focus();
+    document.getElementById('overview-route-input')?.focus();
     return;
   }
   switchView('routing');
-  const routeInput = document.getElementById('route-task-input');
-  if (routeInput) {
-    routeInput.value = text;
-    routeInput.focus();
+  const input = document.getElementById('route-task-input');
+  if (input) {
+    input.value = text;
+    invalidateRouterStudio();
+    input.focus();
   }
-  runRouteTaskStudio();
 }
-
-const routeContextFields = ['current_step','desired_output','artifact_types','available_tools','constraints','loaded_skill_ids_and_versions','explicit_skill_ids'];
 function readRouteContext() {
   const result = {};
   for (const key of routeContextFields) {
@@ -948,644 +972,563 @@ function readRouteContext() {
     if (!value.trim()) continue;
     if (key === 'loaded_skill_ids_and_versions') {
       const parsed = JSON.parse(value);
-      if (parsed !== null && !Array.isArray(parsed)) throw new Error('Tài nguyên đã nạp phải là mảng JSON hoặc null');
+      if (parsed !== null && !Array.isArray(parsed)) throw new Error('INVALID_LOADED_IDENTITIES');
       result[key] = parsed;
     } else if (['current_step','desired_output'].includes(key)) result[key] = value;
     else result[key] = value.split(/\r?\n/).filter(line => line.trim());
   }
   return Object.keys(result).length ? result : null;
 }
-
-let routeStudioRequest = 0;
-
+function routerMode() {
+  return document.getElementById('route-studio-mode')?.value || 'metadata';
+}
+function routerModeLabel(mode) {
+  if (mode === 'metadata') return routeText('Metadata ranking', 'Xếp hạng metadata');
+  if (mode === 'semantic') return routeText('Semantic search', 'Tìm kiếm ngữ nghĩa');
+  return mode === 'tempr' ? 'TEMPR' : (mode || routeText('Unknown', 'Chưa biết'));
+}
+function routerPut(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text;
+  return el;
+}
+function routerMetric(value, suffix = '') {
+  return Number.isFinite(value) ? String(value) + suffix : routeText('Unknown', 'Chưa biết');
+}
+function routerHide(ids, hidden) {
+  for (const id of ids) {
+    const el = document.getElementById(id);
+    if (el) el.hidden = hidden;
+  }
+}
+function updateRouterControls() {
+  const semantic = routerMode() === 'semantic';
+  routerHide(['route-model-warning'], semantic);
+  const run = document.getElementById('btn-run-route-task');
+  if (run) {
+    const label = semantic ? routeText('Search', 'Tìm kiếm') : routeText('Run routing', 'Chạy định tuyến');
+    (run.querySelector('span') || run).textContent = label;
+    run.title = label;
+  }
+  for (const id of ['route-task-id-input','route-include-graph',...routeContextFields.map(key => 'route-context-' + key)]) {
+    const field = document.getElementById(id);
+    if (field) field.disabled = semantic;
+  }
+}
+function updateRouterLoading(mode) {
+  routerPut('route-studio-loading-text', mode === 'semantic' ?
+    routeText('Searching by meaning…', 'Đang tìm kiếm ngữ nghĩa…') :
+    routeText('Routing and scoring resources…', 'Đang định tuyến và chấm điểm tài nguyên…'));
+}
+function showRouterError(type, reason) {
+  routeStudioError = [type, reason];
+  const text = type === 'missing' ? routeText('Enter a task or query.', 'Nhập mô tả tác vụ hoặc truy vấn.') :
+    type === 'context' ? routeText('Loaded identities must be a JSON array or null.', 'Danh tính đã nạp phải là mảng JSON hoặc null.') :
+      routeText('Request failed', 'Yêu cầu thất bại') + (reason ? ' · ' + reason : '');
+  const box = routerPut('route-studio-error', text);
+  if (box) box.hidden = false;
+}
+function invalidateRouterStudio() {
+  ++routeStudioRequest;
+  routeStudioResult = routeStudioLoadingMode = routeStudioError = null;
+  routerHide(['route-studio-error','route-studio-results','route-studio-loading','route-normalized-context','btn-carry-followup-state'], true);
+  renderRouteChoicePool(null);
+}
 async function runRouteTaskStudio() {
-  const inputEl = document.getElementById('route-task-input');
-  const stateText = inputEl ? inputEl.value : '';
-  const errBox = document.getElementById('route-studio-error');
-  const resultsBox = document.getElementById('route-studio-results');
-  const loadingBox = document.getElementById('route-studio-loading');
-  const loadingText = document.getElementById('route-studio-loading-text');
-
-  const request = ++routeStudioRequest;
-  if (loadingBox) loadingBox.hidden = true;
-
-  if (!stateText.trim()) {
-    if (errBox) {
-      errBox.textContent = 'Vui lòng nhập mô tả tác vụ (Task State) để tiến hành kiểm thử định tuyến.';
-      errBox.hidden = false;
-    }
-    if (inputEl) inputEl.focus();
+  invalidateRouterStudio();
+  const request = routeStudioRequest;
+  const input = document.getElementById('route-task-input');
+  const query = input?.value || '';
+  if (!query.trim()) {
+    showRouterError('missing');
+    input?.focus();
     return;
   }
-
-  const oldContext = document.getElementById('route-normalized-context');
-  if (oldContext) oldContext.hidden = true;
-  let taskState;
-  try { taskState = readRouteContext(); } catch (error) {
-    if (errBox) { errBox.textContent = error.message; errBox.hidden = false; }
-    return;
-  }
-  const contextIdentity = JSON.stringify(taskState);
-  const isCurrent = () => request === routeStudioRequest && inputEl.value === stateText &&
-    (() => { try { return JSON.stringify(readRouteContext()) === contextIdentity; } catch { return false; } })() &&
-    (document.getElementById('route-studio-mode')?.value || 'tempr') === mode &&
-    Boolean(document.getElementById('route-include-graph')?.checked) === includeGraph &&
-    ((document.getElementById('route-task-id-input')?.value || '').trim() || null) === taskId;
-  const mode = document.getElementById('route-studio-mode')?.value || 'tempr';
-  const includeGraph = Boolean(document.getElementById('route-include-graph')?.checked);
-  const taskId = (document.getElementById('route-task-id-input')?.value || '').trim() || null;
-
-  if (errBox) { errBox.hidden = true; errBox.textContent = ''; }
-  if (resultsBox) resultsBox.hidden = true;
-  if (loadingBox) {
-    loadingBox.hidden = false;
-    if (loadingText) {
-      loadingText.textContent = mode === 'semantic' ?
-        'Đang gửi truy vấn vector ngữ nghĩa tới bge-m3 trên dGPU...' :
-        'Đang định tuyến và chấm điểm tài nguyên...';
-    }
-  }
-
+  const mode = routerMode();
+  const semantic = mode === 'semantic';
+  let context;
+  try { context = semantic ? null : readRouteContext(); } catch { showRouterError('context'); return; }
+  const includeGraph = !semantic && Boolean(document.getElementById('route-include-graph')?.checked);
+  const readTaskId = () => (document.getElementById('route-task-id-input')?.value || '').trim() || null;
+  const taskId = semantic ? null : readTaskId();
+  const isCurrent = () => {
+    if (request !== routeStudioRequest || input.value !== query || routerMode() !== mode) return false;
+    if (semantic) return true;
+    try {
+      return JSON.stringify(readRouteContext()) === JSON.stringify(context) &&
+        Boolean(document.getElementById('route-include-graph')?.checked) === includeGraph && readTaskId() === taskId;
+    } catch { return false; }
+  };
+  routeStudioLoadingMode = mode;
+  updateRouterLoading(mode);
+  routerHide(['route-studio-loading'], false);
   try {
-    if (mode === 'semantic') {
-      if (taskState !== null) throw new Error('Ngữ cảnh bổ sung dùng với TEMPR hoặc metadata; semantic chỉ tìm kiếm văn bản.');
-      const resp = await apiFetch(`semantic?q=${encodeURIComponent(stateText)}&limit=25`);
-      if (!isCurrent()) return;
-      const data = resp.data || resp || {};
-      renderSemanticStudioResults(data, stateText);
-    } else {
-      const resp = await apiFetch('route_task', {
-        method: 'POST',
-        body: {
-          state: stateText,
-          ...(taskState === null ? {} : {task_state: taskState}),
-          retrieval_mode: mode,
-          include_graph: includeGraph,
-          task_id: taskId
-        }
-      });
-      if (!isCurrent()) return;
-      const data = resp.data || resp || {};
-      renderRouteTaskStudioResults(data);
-    }
-  } catch (err) {
+    const resp = semantic ? await apiFetch('semantic?q=' + encodeURIComponent(query) + '&limit=25') :
+      await apiFetch('route_task', {method: 'POST', body: {
+        state: query, ...(context === null ? {} : {task_state: context}),
+        retrieval_mode: mode, include_graph: includeGraph, task_id: taskId
+      }});
     if (!isCurrent()) return;
-    if (errBox) {
-      const isBusy = (err.message || '').includes('busy') || (err.message || '').includes('503') || (err.message || '').includes('ROUTER_BUSY');
-      const hint = isBusy ? ' — Máy chủ định tuyến đang bận hoặc quá tải admission (hàng đợi 0.5s). Vui lòng thử lại sau giây lát hoặc chuyển sang Chế độ truy xuất "metadata".' : '';
-      errBox.textContent = `Lỗi kiểm thử định tuyến (${mode}): ${err.message}${hint}`;
-      errBox.hidden = false;
-    }
+    const data = resp.data || resp;
+    routeStudioResult = {data, mode, query, isCurrent, selected: new Set(), receipts: new Map(),
+      errors: new Map(), contextClaims: context?.loaded_skill_ids_and_versions || [], loading: false, zero: false};
+    if (semantic) renderSemanticStudioResults(data, query);
+    else renderRouteTaskStudioResults(data, routeStudioResult);
+  } catch (error) {
+    if (isCurrent()) showRouterError('request', error.message);
   } finally {
-    if (loadingBox && request === routeStudioRequest) loadingBox.hidden = true;
+    if (request === routeStudioRequest) {
+      routeStudioLoadingMode = null;
+      routerHide(['route-studio-loading'], true);
+    }
   }
 }
 
-function renderRouteChoicePool(data) {
+const routeDigest = /^[a-f0-9]{64}$/;
+function qualifiedRouteId(id, kind) {
+  if (typeof id !== 'string' || !id) return null;
+  if (/^(skill|prompt):.+/.test(id)) return id;
+  return ['skill','prompt'].includes(kind) ? kind + ':' + id : null;
+}
+function validRoutePin(item) {
+  return routeDigest.test(item.source_raw_sha256 || '') &&
+    (!item.id.startsWith('skill:') || routeDigest.test(item.bundle_sha256 || ''));
+}
+function matchesRouteReceipt(item, receipt) {
+  return receipt?.load_verified === true && receipt.verified_in_client === true &&
+    (receipt.resource_id || qualifiedRouteId(receipt.id, receipt.kind || receipt.type)) === item.id &&
+    receipt.body_raw_sha256 === item.source_raw_sha256 &&
+    (!item.id.startsWith('skill:') || receipt.bundle_sha256 === item.bundle_sha256) &&
+    typeof receipt.body === 'string' && Number.isSafeInteger(receipt.body_bytes) && receipt.body_bytes > 0 &&
+    new TextEncoder().encode(receipt.body).length === receipt.body_bytes;
+}
+function mergeRouteClaims(prior, receipts) {
+  const claims = new Map(prior.filter(claim => claim && typeof claim.id === 'string').map(claim => [claim.id, claim]));
+  for (const [id, receipt] of receipts) {
+    claims.set(id, {id, content_sha256: receipt.body_raw_sha256,
+      ...(receipt.bundle_sha256 ? {bundle_sha256: receipt.bundle_sha256} : {}),
+      ...(receipt.version ? {version: receipt.version} : {})});
+  }
+  return [...claims.values()];
+}
+async function loadRouterChoices(view, byId) {
+  if (!view.isCurrent() || view.loading) return;
+  if (!view.selected.size) {
+    view.zero = true;
+    refreshRouteChoices(view);
+    return;
+  }
+  const seen = new Set();
+  const ordered = [];
+  function visit(id) {
+    const item = byId.get(id);
+    if (seen.has(id) || !item || !validRoutePin(item) || view.receipts.has(id)) return;
+    seen.add(id);
+    // Order explicit dependencies only. The Hub validates dependency pins and cycles.
+    for (const dep of Array.isArray(item.dependencies) ? item.dependencies : []) {
+      if (view.selected.has(dep)) visit(dep);
+    }
+    ordered.push(item);
+  }
+  view.selected.forEach(visit);
+  view.loading = true;
+  refreshRouteChoices(view);
+  updateRouterFollowup(view);
+  for (const item of ordered) {
+    if (!view.isCurrent()) return;
+    const id = item.id;
+    view.errors.delete(id);
+    const claims = mergeRouteClaims(view.contextClaims, view.receipts);
+    try {
+      const response = await apiFetch('load_resource_choice', {method: 'POST', body: {
+        resource_id: id, source_raw_sha256: item.source_raw_sha256,
+        ...(item.bundle_sha256 ? {bundle_sha256: item.bundle_sha256} : {}),
+        ...(claims.length ? {loaded_skill_ids_and_versions: claims} : {})
+      }});
+      if (!view.isCurrent()) return;
+      const receipt = response.data || response;
+      if (matchesRouteReceipt(item, receipt)) view.receipts.set(id, receipt);
+      else view.errors.set(id, receipt?.error || 'UNVERIFIED_RECEIPT');
+    } catch (error) {
+      if (!view.isCurrent()) return;
+      view.errors.set(id, error.message);
+    }
+    refreshRouteChoices(view);
+    renderRouterLoaded(view.data, view);
+    renderRouteScoresTable();
+  }
+  view.loading = false;
+  refreshRouteChoices(view);
+  updateRouterFollowup(view);
+}
+
+function refreshRouteChoices(view) {
+  const items = document.getElementById('route-choice-items');
+  if (!items || !view) return;
+  const disabled = view.loading || !view.isCurrent();
+  for (const card of items.querySelectorAll('[data-choice-id]')) {
+    const id = card.dataset.choiceId;
+    card.querySelector('.choice-status').textContent = view.receipts.has(id) ? routeText('Verified load', 'Đã nạp và xác minh') :
+      view.errors.has(id) ? routeText('Load refused', 'Nạp bị từ chối') :
+      view.selected.has(id) ? routeText('Selected by you', 'Bạn đã chọn') : routeText('Not selected', 'Chưa chọn');
+    const input = card.querySelector('input');
+    input.checked = view.selected.has(id);
+    input.disabled = disabled || input.dataset.unavailable === 'true' || view.receipts.has(id);
+  }
+  routerPut('route-choice-selected-count', view.loading ?
+    routeText('Loading selected resources…', 'Đang nạp tài nguyên đã chọn…') :
+    routeText('Selected by you: ', 'Bạn đã chọn: ') + view.selected.size +
+      (view.zero && !view.selected.size ? routeText(' · No load requested', ' · Không yêu cầu nạp') : ''));
+  for (const id of ['btn-load-selected-choices','btn-clear-selected-choices']) {
+    const control = document.getElementById(id);
+    if (control) control.setAttribute('aria-disabled', String(disabled));
+  }
+  routerPut('choice-load-results', [...view.errors].map(([id, reason]) => id + ' · ' + reason).join('\n'));
+}
+
+function routeChoiceMenu(data) {
+  const pool = data?.choice_pool;
+  return Array.isArray(pool?.skills) && Array.isArray(pool?.prompts) && Array.isArray(pool?.excluded) ? pool : null;
+}
+
+function renderRouteChoicePool(data, view = routeStudioResult) {
   const panel = document.getElementById('route-choice-pool');
   const items = document.getElementById('route-choice-items');
   if (!panel || !items) return;
-  const pool = data?.choice_pool;
-  const visible = Array.isArray(pool?.skills) && Array.isArray(pool?.prompts) &&
-    Array.isArray(pool?.excluded);
-  panel.hidden = !visible;
+  const pool = routeChoiceMenu(data);
+  panel.hidden = !pool;
   items.replaceChildren();
-  if (!visible) return;
-
-  const loaded = new Set((Array.isArray(data.loads?.loaded) ? data.loads.loaded : [])
-    .flatMap(receipt => {
-      const kind = receipt?.kind || receipt?.type;
-      if (!['skill', 'prompt'].includes(kind) || typeof receipt.id !== 'string' || !receipt.id) return [];
-      return [receipt.id.startsWith(kind + ':') ? receipt.id : kind + ':' + receipt.id];
-    }));
-  const choiceRows = [...pool.skills, ...pool.prompts];
-  for (const choice of choiceRows) {
-    if (typeof choice?.id !== 'string' || !/^(skill|prompt):.+/.test(choice.id)) continue;
-    const kind = choice.id.split(':', 1)[0];
+  if (!pool || !view) return;
+  const byId = new Map([...pool.skills, ...pool.prompts].filter(c => /^(skill|prompt):.+/.test(c?.id || '')).map(c => [c.id, c]));
+  for (const choice of byId.values()) {
     const card = document.createElement('div');
     card.className = 'loaded-resource-card';
-    const recommendation = choice.recommended === true ? 'Đề xuất' :
-      choice.recommended === false ? 'Phương án khác' : 'Chưa rõ đề xuất';
-    const dependencies = Array.isArray(choice.dependencies) ? choice.dependencies.join(', ') : '';
-    const capabilities = Array.isArray(choice.capabilities) ? choice.capabilities.join(', ') : '';
-    const scoreText = Number.isFinite(choice.score) ? ` · Điểm: ${Number(choice.score).toFixed(4)}` : '';
-    const rawPin = typeof choice.source_raw_sha256 === 'string' ? choice.source_raw_sha256 : '';
-    const bundlePin = typeof choice.bundle_sha256 === 'string' ? choice.bundle_sha256 : '';
-    card.innerHTML = `
-      <strong>${escapeHtml(choice.id)}</strong>
-      <div class="text-xs">${recommendation} · ${loaded.has(choice.id) ? 'Đã nạp' : 'Chưa nạp'}${scoreText}</div>
-      <div class="text-xs text-muted">Lý do: ${escapeHtml(choice.reason)}</div>
-      ${capabilities ? `<div class="text-xs">Capability: ${escapeHtml(capabilities)}</div>` : ''}
-      ${dependencies ? `<div class="text-xs">Phụ thuộc: ${escapeHtml(dependencies)}</div>` : ''}
-      ${choice.role ? `<div class="text-xs">Vai trò: ${escapeHtml(choice.role)}</div>` : ''}
-      ${Number.isFinite(choice.body_bytes) ? `<div class="text-xs">${choice.body_bytes} byte</div>` : ''}
-      ${rawPin ? `<div class="text-xs font-mono">raw_sha256: ${escapeHtml(rawPin.slice(0, 16))}…${bundlePin ? ` · bundle: ${escapeHtml(bundlePin.slice(0, 12))}…` : ''}</div>` : ''}
-      <label class="text-xs"><input type="checkbox" class="choice-select-box" data-qid="${escapeHtml(choice.id)}" ${choice.recommended === true ? 'checked' : ''}> Chọn nạp (load_resource_choice)</label>
-      <button type="button" class="btn btn-subtle btn-xs">Mở ngăn Chi tiết</button>`;
-    card.querySelector('button').addEventListener('click', () => openResourceInspector(choice.resource_id, kind));
+    card.dataset.choiceId = choice.id;
+    const kind = choice.id.split(':')[0];
+    const recommendation = choice.recommended === true ? routeText('Recommended by Hub', 'Hub đề xuất') :
+      choice.recommended === false ? routeText('Alternative', 'Phương án khác') : routeText('Recommendation unknown', 'Chưa rõ đề xuất');
+    const deps = Array.isArray(choice.dependencies) ? choice.dependencies.join(', ') : '';
+    const caps = Array.isArray(choice.capabilities) ? choice.capabilities.join(', ') : '';
+    const pinned = validRoutePin(choice);
+    card.innerHTML = `<strong>${escapeHtml(choice.id)}</strong>
+      <div class="text-xs">${recommendation} · <span class="choice-status"></span></div>
+      <div class="text-xs text-muted">${routeText('Score', 'Điểm')}: ${routerMetric(choice.score)} · ${escapeHtml(choice.reason || '')}</div>
+      ${caps ? `<div class="text-xs">${routeText('Capabilities', 'Năng lực')}: ${escapeHtml(caps)}</div>` : ''}
+      ${deps ? `<div class="text-xs">${routeText('Dependencies', 'Phụ thuộc')}: ${escapeHtml(deps)}</div>` : ''}
+      ${choice.role ? `<div class="text-xs">${routeText('Role', 'Vai trò')}: ${escapeHtml(choice.role)}</div>` : ''}
+      ${pinned ? `<div class="text-xs font-mono">${escapeHtml(choice.source_raw_sha256.slice(0,16))}…</div>` :
+        `<div class="text-xs text-muted">${routeText('Load pins unavailable', 'Thiếu mã băm để nạp')}</div>`}
+      <label class="text-xs"><input type="checkbox" class="choice-select-box" data-unavailable="${!pinned}"> ${routeText('Select for loading', 'Chọn để nạp')}</label>
+      <button type="button" class="btn btn-subtle btn-xs">${routeText('Details', 'Chi tiết')}</button>`;
+    card.querySelector('button').addEventListener('click', () => openResourceInspector(choice.resource_id || choice.id.slice(kind.length + 1), kind));
+    card.querySelector('input').addEventListener('change', event => {
+      if (!view.isCurrent()) return;
+      if (event.target.checked) view.selected.add(choice.id);
+      else view.selected.delete(choice.id);
+      view.zero = false;
+      refreshRouteChoices(view);
+      renderRouteScoresTable();
+    });
     items.appendChild(card);
   }
   for (const exclusion of pool.excluded) {
     if (typeof exclusion?.id !== 'string') continue;
     const row = document.createElement('div');
     row.className = 'text-xs text-muted';
-    row.textContent = `Không vào danh sách: ${exclusion.id} · ${exclusion.reason}` +
-      (exclusion.related_id ? ` · ${exclusion.related_id}` : '');
+    row.textContent = [routeText('Excluded', 'Bị loại'), exclusion.id, exclusion.reason, exclusion.related_id].filter(Boolean).join(' · ');
     items.appendChild(row);
   }
-  if (pool.skills.length || pool.prompts.length) {
-    const summary = document.createElement('div');
-    summary.className = 'text-xs text-muted';
-    summary.textContent = `Menu lựa chọn (0 tự nạp, chọn 0 hoặc tối đa 12 skill · 8 prompt): ${pool.skills.length} skill · ${pool.prompts.length} prompt`;
-    items.appendChild(summary);
-    const controls = document.createElement('div');
-    controls.className = 'mt-sm';
-    controls.innerHTML = `<button type="button" class="btn btn-primary btn-xs" id="btn-load-selected-choices">Tải các mục đã chọn (load_resource_choice)</button> <button type="button" class="btn btn-subtle btn-xs" id="btn-clear-selected-choices">Không chọn (0)</button><div id="choice-load-results" class="text-xs mt-xs"></div>`;
-    const byId = new Map(choiceRows.filter(c => typeof c?.id === 'string').map(c => [c.id, c]));
-    controls.querySelector('#btn-clear-selected-choices')?.addEventListener('click', () => {
-      items.querySelectorAll('.choice-select-box').forEach(cb => { cb.checked = false; });
-      const resBox = controls.querySelector('#choice-load-results');
-      if (resBox) resBox.textContent = 'Đã chọn 0 tài nguyên (none).';
+  const controls = document.createElement('div');
+  if (byId.size) {
+    controls.innerHTML = `<div id="route-choice-selected-count" class="text-xs" role="status"></div>
+      <button type="button" class="btn btn-primary btn-xs" id="btn-load-selected-choices">${routeText('Load selected', 'Nạp mục đã chọn')}</button>
+      <button type="button" class="btn btn-subtle btn-xs" id="btn-clear-selected-choices">${routeText('Choose none (0)', 'Không chọn (0)')}</button>
+      <div id="choice-load-results" class="text-xs mt-xs" role="status"></div>`;
+    controls.querySelector('#btn-load-selected-choices').addEventListener('click', () => loadRouterChoices(view, byId));
+    controls.querySelector('#btn-clear-selected-choices').addEventListener('click', () => {
+      if (view.loading || !view.isCurrent()) return;
+      view.selected.clear();
+      view.zero = true;
+      refreshRouteChoices(view);
+      renderRouteScoresTable();
     });
-    controls.querySelector('#btn-load-selected-choices')?.addEventListener('click', async () => {
-      const resBox = controls.querySelector('#choice-load-results');
-      const selectedIds = Array.from(items.querySelectorAll('.choice-select-box')).filter(cb => cb.checked).map(cb => cb.dataset.qid);
-      if (!selectedIds.length) { if (resBox) resBox.textContent = 'Đã chọn 0 tài nguyên (none).'; return; }
-      const ordered = [];
-      const seen = new Set();
-      const visit = (id) => {
-        if (seen.has(id) || !byId.has(id)) return;
-        seen.add(id);
-        for (const dep of (byId.get(id).dependencies || [])) visit(dep);
-        ordered.push(byId.get(id));
-      };
-      selectedIds.forEach(visit);
-      const loadedClaims = [];
-      const lines = [];
-      for (const item of ordered) {
-        try {
-          const resp = await apiFetch('load_resource_choice', {
-            method: 'POST',
-            body: {
-              resource_id: item.id,
-              source_raw_sha256: item.source_raw_sha256,
-              ...(item.bundle_sha256 ? {bundle_sha256: item.bundle_sha256} : {}),
-              ...(loadedClaims.length ? {loaded_skill_ids_and_versions: loadedClaims} : {})
-            }
-          });
-          const d = resp.data || resp;
-          if (d?.load_verified === true && d.verified_in_client === true) {
-            const claim = {id: item.id, content_sha256: d.body_raw_sha256};
-            if (d.bundle_sha256) claim.bundle_sha256 = d.bundle_sha256;
-            if (item.version) claim.version = item.version;
-            loadedClaims.push(claim);
-            const cardEl = document.createElement('details');
-            cardEl.open = true;
-            cardEl.innerHTML = `<summary>✓ ${escapeHtml(item.id)}: ${d.body_bytes} B · sha256=${escapeHtml(d.body_raw_sha256)}</summary><pre class="text-xs">${escapeHtml(d.body || '')}</pre>`;
-            lines.push(cardEl);
-          } else {
-            const errEl = document.createElement('div');
-            errEl.textContent = `✗ ${item.id}: ${(d && d.error) || 'LOAD_FAILED'}`;
-            lines.push(errEl);
-          }
-        } catch (err) {
-          const errEl = document.createElement('div');
-          errEl.textContent = `✗ ${item.id}: ${err.message}`;
-          lines.push(errEl);
-        }
-      }
-      if (resBox) {
-        resBox.replaceChildren(...lines);
-      }
-    });
-    items.appendChild(controls);
-  }
-  if (!items.childElementCount) items.textContent = 'Không có tài nguyên trong danh sách này.';
+  } else controls.textContent = routeText('No resources offered.', 'Không có tài nguyên được đề xuất.');
+  items.appendChild(controls);
+  refreshRouteChoices(view);
 }
 
-function renderRouteTaskStudioResults(data) {
-  renderRouteChoicePool(data);
+function updateRouterFollowup(view) {
+  const button = document.getElementById('btn-carry-followup-state');
+  if (!button) return;
+  button.hidden = !view.receipts.size;
+  button.disabled = view.loading || !view.isCurrent();
+  button.onclick = () => {
+    if (!view.isCurrent() || view.loading || !view.receipts.size) return;
+    const field = document.getElementById('route-context-loaded_skill_ids_and_versions');
+    if (!field) return;
+    field.value = JSON.stringify(mergeRouteClaims(view.contextClaims, view.receipts), null, 2);
+    const details = field.closest('details');
+    if (details) details.open = true;
+    field.focus();
+    refreshRouteChoices(view);
+    button.disabled = true;
+  };
+}
+
+function routerGpu(value) {
+  const gpu = routerPut('decision-gpu', 'GPU: ' +
+    (value === true ? routeText('VRAM resident', 'Thường trú VRAM') :
+      value === false ? routeText('Not VRAM resident', 'Không thường trú VRAM') : routeText('Unknown', 'Chưa biết')));
+  if (gpu) gpu.className = value === true ? 'badge badge-alive' : 'badge badge-subtle';
+}
+
+function formatRouterThreshold(kind, threshold) {
+  const operator = {'>': '>', '>=': '≥', '≥': '≥'}[threshold?.operator];
+  const name = kind === 'skill' ? routeText('Skill threshold', 'Ngưỡng kỹ năng') : routeText('Prompt threshold', 'Ngưỡng lời nhắc');
+  return name + ': ' + (operator && Number.isFinite(threshold?.value) ?
+    operator + ' ' + String(threshold.value) : routeText('Unknown', 'Chưa biết'));
+}
+
+function renderRouterCoverage(data) {
+  const cov = data.coverage || {};
+  const retrieval = data.retrieval || {};
+  routerPut('cov-scored', routerMetric(cov.scored_candidates ?? cov.scored));
+  routerPut('cov-retrieved', routerMetric(cov.retrieved_candidates ?? cov.retrieved));
+  routerPut('cov-total', routerMetric(cov.catalog_total));
+  routerPut('coverage-catalog-stats', retrieval.method || routeText('Retrieval method unknown', 'Chưa biết phương pháp truy xuất'));
+  for (const kind of ['skill','prompt']) routerPut('route-threshold-' + kind, formatRouterThreshold(kind, data.thresholds?.[kind]));
+  for (const name of ['semantic','keyword','graph','temporal']) {
+    const info = retrieval.engines?.[name];
+    const status = routerPut('engine-status-' + name, info?.status || routeText('Unknown', 'Chưa biết'));
+    if (status) {
+      status.title = info?.reason || '';
+      status.className = ['OK','READY'].includes(info?.status) ? 'badge badge-ready text-xs' :
+        ['ERROR','TIMEOUT','UNAVAILABLE'].includes(info?.status) ? 'badge badge-error text-xs' : 'badge badge-neutral text-xs';
+    }
+    routerPut('engine-count-' + name, routerMetric(info?.count ?? (Array.isArray(info?.hits) ? info.hits.length : info?.hits)));
+    routerPut('engine-latency-' + name, routerMetric(info?.elapsed_ms, ' ms'));
+  }
+  const partial = data.partial === true ? routeText('Partial result', 'Kết quả một phần') :
+    data.partial === false ? routeText('Result marked complete', 'Kết quả được đánh dấu hoàn tất') :
+      routeText('Partial status unknown', 'Chưa biết kết quả có một phần hay không');
+  const stop = cov.stop_reason || (Array.isArray(retrieval.adaptive_rounds) && retrieval.adaptive_rounds.at(-1)?.reason);
+  routerPut('route-partial-status', [partial, data.partial_reason !== stop && data.partial_reason,
+    stop && routeText('Stop: ', 'Dừng: ') + stop].filter(Boolean).join(' · '));
+  routerHide(['route-partial-status'], false);
+  const stages = document.getElementById('route-stage-details');
+  if (!stages) return;
+  stages.hidden = false;
+  stages.replaceChildren();
+  const rounds = Array.isArray(retrieval.adaptive_rounds) ? retrieval.adaptive_rounds : retrieval.scoring_stages;
+  const caps = retrieval.scoring_budget?.round_caps;
+  const heading = document.createElement('div');
+  heading.textContent = [
+    routeText('Scoring: ', 'Chấm điểm: ') + (retrieval.scoring_budget?.mode ||
+      (Array.isArray(retrieval.adaptive_rounds) ? 'dynamic' :
+        Array.isArray(retrieval.scoring_stages) ? 'staged' : routeText('Unknown', 'Chưa biết'))),
+    Array.isArray(caps) && caps.length ? routeText('Cumulative limits: ', 'Giới hạn cộng dồn: ') + caps.join(' → ') : null,
+    Array.isArray(rounds) ? routeText('Rounds reported: ', 'Số vòng đã ghi nhận: ') + rounds.length : null,
+    Number.isFinite(cov.batches_completed) ? routeText('Completed batches: ', 'Lô đã hoàn tất: ') + cov.batches_completed : null
+  ].filter(Boolean).join(' · ');
+  stages.appendChild(heading);
+  if (Array.isArray(rounds) && rounds.length) {
+    const list = document.createElement('ol');
+    for (const row of rounds) {
+      const item = document.createElement('li');
+      item.textContent = [
+        routeText('Limit: ', 'Giới hạn: ') + routerMetric(row.cap),
+        Number.isFinite(row.attempted) ? routeText('Attempted: ', 'Đã thử: ') + row.attempted : null,
+        row.verified_counts ? routeText('Verified candidates: ', 'Ứng viên đã xác minh: ') +
+          routerMetric(row.verified_counts.skill) + ' skill / ' + routerMetric(row.verified_counts.prompt) + ' prompt' : null,
+        row.reason || row.stop_reason
+      ].filter(Boolean).join(' · ');
+      list.appendChild(item);
+    }
+    stages.appendChild(list);
+  }
+}
+
+function renderRouteTaskStudioResults(data, view = routeStudioResult) {
+  renderRouteChoicePool(data, view);
+  if (view) updateRouterFollowup(view);
   const context = document.getElementById('route-normalized-context');
   if (context) {
-    const explicitRes = Array.isArray(data.retrieval?.explicit_resolution) ? data.retrieval.explicit_resolution : null;
-    const hasContext = Boolean(data.task_state) || Boolean(explicitRes && explicitRes.length);
-    context.hidden = !hasContext;
-    if (hasContext) {
-      const shown = {task_state: data.task_state || null, task_state_sha256: data.task_state_sha256 || null};
-      if (explicitRes && explicitRes.length) shown.explicit_resolution = explicitRes;
-      context.textContent = JSON.stringify(shown, null, 2);
-    } else {
-      context.textContent = '';
-    }
+    const explicit = data.retrieval?.explicit_resolution;
+    context.hidden = !data.task_state && !explicit?.length;
+    context.textContent = context.hidden ? '' : JSON.stringify({task_state: data.task_state || null,
+      task_state_sha256: data.task_state_sha256 || null, ...(explicit?.length ? {explicit_resolution: explicit} : {})}, null, 2);
   }
-  const followBtn = document.getElementById('btn-carry-followup-state');
-  if (followBtn) {
-    const loadedItems = (Array.isArray(data.loads?.loaded) ? data.loads.loaded : [])
-      .filter(r => r && typeof r.id === 'string' && r.id.trim())
-      .map(r => {
-        const entry = {id: r.id};
-        if (typeof r.version === 'string' && r.version) entry.version = r.version;
-        const sha = r.file_sha256 || r.body_raw_sha256 || r.content_sha256;
-        if (typeof sha === 'string' && /^[0-9a-f]{64}$/.test(sha)) entry.content_sha256 = sha;
-        return entry;
-      });
-    followBtn.hidden = loadedItems.length === 0;
-    followBtn.onclick = () => {
-      const target = document.getElementById('route-context-loaded_skill_ids_and_versions');
-      if (target) {
-        target.value = JSON.stringify(loadedItems, null, 2);
-        const details = target.closest('details');
-        if (details) details.open = true;
-        target.focus();
-      }
-    };
-  }
-  const resultsBox = document.getElementById('route-studio-results');
-  if (!resultsBox) return;
-
-  // Toggle sections: show TEMPR/Scores, hide semantic hits
-  const bannerEl = document.getElementById('decision-banner');
-  const temprEl = document.getElementById('tempr-coverage-panel');
-  const loadedEl = document.getElementById('loaded-resources-section');
-  const scoredEl = document.getElementById('scored-candidates-section');
-  const semanticEl = document.getElementById('semantic-hits-section');
-
-  if (bannerEl) bannerEl.hidden = false;
-  if (temprEl) temprEl.hidden = false;
-  if (loadedEl) loadedEl.hidden = false;
-  if (scoredEl) scoredEl.hidden = false;
-  if (semanticEl) semanticEl.hidden = true;
-
-  // 1. Decision Summary Banner
+  routerHide(['decision-banner','tempr-coverage-panel','loaded-resources-section','scored-candidates-section','route-studio-results'], false);
+  routerHide(['semantic-hits-section'], true);
   const outcomeRaw = data.outcome || 'UNKNOWN';
-  const { text: outcomeText, badgeClass: outcomeBadgeClass } = formatStudioOutcome(outcomeRaw);
-  const outcomeBadgeEl = document.getElementById('decision-outcome-badge');
-  if (outcomeBadgeEl) {
-    outcomeBadgeEl.textContent = outcomeText;
-    outcomeBadgeEl.className = `decision-badge ${outcomeBadgeClass}`;
-  }
-
-  const elapsedEl = document.getElementById('decision-elapsed');
-  if (elapsedEl) elapsedEl.textContent = `${data.elapsed_ms !== undefined ? data.elapsed_ms : '—'} ms`;
-
-  const triggerEl = document.getElementById('decision-trigger');
-  if (triggerEl) triggerEl.textContent = `Trigger: ${data.trigger || 'MODEL'}`;
-
-  const gpuEl = document.getElementById('decision-gpu');
-  if (gpuEl) {
-    const isGpu = Boolean(data.gpu_resident);
-    gpuEl.textContent = isGpu ? 'dGPU: Thường trú VRAM' : 'dGPU: Không thường trú (Phối hợp CPU/RAM)';
-    gpuEl.className = isGpu ? 'badge badge-alive' : 'badge badge-subtle';
-  }
-
-  const provEl = document.getElementById('decision-provider');
-  if (provEl) {
-    const model = data.provider?.model || 'Elephant 9B';
-    const lat = data.provider?.latency_ms !== undefined ? `${data.provider.latency_ms}ms` : '';
-    const cost = data.provider?.cost_usd !== undefined ? `$${data.provider.cost_usd}` : '';
-    provEl.textContent = `${model} ${lat ? '(' + lat + (cost ? ', ' + cost : '') + ')' : ''}`.trim();
-  }
-
-  const reasonEl = document.getElementById('decision-reason-text');
-  if (reasonEl) {
-    const isSelect = outcomeRaw === 'SELECTED' || outcomeRaw === 'PASS' || outcomeRaw === 'OK';
-    const fbText = typeof data.fallback_discovery === 'string' ? data.fallback_discovery : (data.fallback_discovery?.reason || '');
-    const reasonText = data.reason || data.fallback || fbText || (isSelect ? 'Đã chọn tài nguyên phù hợp' : 'Không có tài nguyên vượt ngưỡng');
-    reasonEl.textContent = reasonText;
-  }
-
-  const routeIdEl = document.getElementById('decision-route-id');
-  if (routeIdEl) {
-    routeIdEl.textContent = data.telemetry?.route_id || data.route_id || 'Chưa ghi nhận';
-  }
-
-  // 2. TEMPR 4-Engine Candidate Preparation & Coverage Grid
-  const engines = data.retrieval?.engines || {};
-  const updateEngineCard = (name, key) => {
-    const info = engines[key] || {};
-    const statusEl = document.getElementById(`engine-status-${name}`);
-    const countEl = document.getElementById(`engine-count-${name}`);
-    const latEl = document.getElementById(`engine-latency-${name}`);
-    if (statusEl) {
-      const st = String(info.status || 'OK').toUpperCase();
-      const reason = info.reason ? String(info.reason) : '';
-      statusEl.textContent = (st === 'EMPTY' && reason === 'NOT_TEMPORAL') ? 'EMPTY (Không hỏi thời gian)' : st;
-      if (reason) {
-        statusEl.title = `Lý do: ${reason}`;
-      }
-      if (st === 'OK' || st === 'READY') {
-        statusEl.className = 'badge badge-ready text-xs';
-      } else if (st === 'SKIPPED' || st === 'EMPTY') {
-        statusEl.className = 'badge badge-neutral text-xs';
-      } else {
-        statusEl.className = 'badge badge-error text-xs';
-      }
-    }
-    const hitCount = info.hits !== undefined ? info.hits : (info.count !== undefined ? info.count : 0);
-    if (countEl) countEl.textContent = String(hitCount);
-    if (latEl) latEl.textContent = `${info.elapsed_ms !== undefined ? info.elapsed_ms : 0} ms`;
-  };
-
-  updateEngineCard('semantic', 'semantic');
-  updateEngineCard('keyword', 'keyword');
-  updateEngineCard('graph', 'graph');
-  updateEngineCard('temporal', 'temporal');
-
-  const cov = data.coverage || {};
-  const covScoredEl = document.getElementById('cov-scored');
-  const covRetrievedEl = document.getElementById('cov-retrieved');
-  const covTotalEl = document.getElementById('cov-total');
-  const covCatalogStatsEl = document.getElementById('coverage-catalog-stats');
-
-  const scoredVal = cov.scored_candidates ?? cov.scored ?? (data.scores?.length || 0);
-  const retrievedVal = cov.retrieved_candidates ?? cov.retrieved ?? 0;
-  const totalVal = cov.catalog_total !== undefined ? cov.catalog_total : '—';
-
-  if (covScoredEl) covScoredEl.textContent = String(scoredVal);
-  if (covRetrievedEl) covRetrievedEl.textContent = String(retrievedVal);
-  if (covTotalEl) covTotalEl.textContent = String(totalVal);
-  if (covCatalogStatsEl) {
-    covCatalogStatsEl.textContent = `Tỷ lệ: ${scoredVal}/${retrievedVal} (${totalVal} trong catalog)`;
-  }
-
-  // 3. Selected & Loaded Resources
-  const loadedCardsGrid = document.getElementById('loaded-cards-grid');
-  const loadedCountBadge = document.getElementById('loaded-count-badge');
-  const skillsList = data.loads?.skills || [];
-  const promptsList = data.loads?.prompts || [];
-  const deferredList = data.loads?.deferred || [];
-  const totalLoaded = skillsList.length + promptsList.length;
-
-  if (loadedCountBadge) {
-    loadedCountBadge.textContent = `${totalLoaded} tài nguyên nạp (${skillsList.length} skills, ${promptsList.length} prompts)`;
-  }
-
-  if (loadedCardsGrid) {
-    loadedCardsGrid.innerHTML = '';
-    if (totalLoaded === 0 && deferredList.length === 0) {
-      loadedCardsGrid.innerHTML = '<div class="text-muted text-sm p-sm">Lượt này chưa nạp nội dung tài nguyên.</div>';
-    } else {
-      skillsList.forEach(item => {
-        const card = createLoadedResourceCard(item, 'skill');
-        loadedCardsGrid.appendChild(card);
-      });
-      promptsList.forEach(item => {
-        const card = createLoadedResourceCard(item, 'prompt');
-        loadedCardsGrid.appendChild(card);
-      });
-      deferredList.forEach(item => {
-        const card = createDeferredResourceCard(item);
-        loadedCardsGrid.appendChild(card);
-      });
-    }
-
-    loadedCardsGrid.querySelectorAll('.btn-inspect-loaded').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const id = btn.getAttribute('data-id');
-        const kind = btn.getAttribute('data-kind');
-        openResourceInspector(id, kind);
-      });
-    });
-  }
-
-  // 4. Scored Candidates Ranking Table
-  state.routeStudio.lastScores = data.scores || [];
+  const outcome = formatStudioOutcome(outcomeRaw, !!routeChoiceMenu(data));
+  const badge = routerPut('decision-outcome-badge', outcome.text);
+  if (badge) badge.className = 'decision-badge ' + outcome.badgeClass;
+  routerPut('decision-title', routeText('Routing result', 'Kết quả định tuyến'));
+  routerPut('decision-subtitle', routeText('Requested: ', 'Đã yêu cầu: ') + routerModeLabel(view?.mode || data.query?.retrieval_mode));
+  routerPut('decision-elapsed', routerMetric(data.elapsed_ms, ' ms'));
+  routerPut('decision-trigger', routeText('Trigger: ', 'Kích hoạt: ') + (data.trigger || routeText('Unknown', 'Chưa biết')));
+  routerGpu(data.gpu_resident);
+  const provider = data.provider;
+  const requests = Array.isArray(provider?.requests) ? provider.requests : [];
+  const resolved = [...new Set([provider?.resolved_model, ...requests.map(row => row?.resolved_model)].filter(value => typeof value === 'string' && value))];
+  const requested = [...new Set([provider?.model, ...requests.map(row => row?.model)].filter(value => typeof value === 'string' && value))];
+  routerPut('decision-provider', [
+    resolved.length ? routeText('Resolved model: ', 'Model đã xác định: ') + resolved.join(', ') : routeText('Resolved model unknown', 'Chưa biết model thực tế'),
+    requested.length ? routeText('Requested model: ', 'Model đã yêu cầu: ') + requested.join(', ') : null,
+    Number.isFinite(provider?.latency_ms) ? routerMetric(provider.latency_ms, ' ms') : null,
+    Number.isFinite(provider?.cost_usd) ? '$' + provider.cost_usd : null
+  ].filter(Boolean).join(' · '));
+  routerPut('decision-reason-text', data.reason || data.error || data.fallback || data.fallback_discovery?.reason || routeText('Unknown', 'Chưa biết'));
+  routerPut('decision-route-id', data.telemetry?.route_id || data.route_id || routeText('Unknown', 'Chưa biết'));
+  renderRouterCoverage(data);
+  renderRouterLoaded(data, view);
+  state.routeStudio.lastScores = Array.isArray(data.scores) ? data.scores : [];
   renderRouteScoresTable();
+}
 
-  // Reveal results container
-  resultsBox.hidden = false;
+function renderRouterLoaded(data, view) {
+  const grid = document.getElementById('loaded-cards-grid');
+  if (!grid) return;
+  const receipts = [...(view?.receipts || [])];
+  const legacy = ['skills','prompts'].flatMap(key => (data.loads?.[key] || []).map(item => [item, key.slice(0,-1)]));
+  const deferred = data.loads?.deferred || [];
+  routerPut('loaded-count-badge', routeText('Verified loads: ', 'Đã nạp và xác minh: ') + receipts.length +
+    (legacy.length ? routeText(' · Reported by Hub: ', ' · Hub báo đã nạp: ') + legacy.length : ''));
+  const openIds = new Set([...grid.querySelectorAll('details[open]')].map(node => node.parentElement.dataset.receiptId));
+  grid.replaceChildren();
+  if (!receipts.length && !legacy.length && !deferred.length) {
+    grid.textContent = routeText('No resource content loaded for this request.', 'Lượt này chưa nạp nội dung tài nguyên.');
+  }
+  for (const [id, receipt] of receipts) {
+    const card = createLoadedResourceCard({id: id.slice(id.indexOf(':')+1), name: id, body: receipt.body,
+      sha256: receipt.body_raw_sha256, body_bytes: receipt.body_bytes, verified: true}, id.split(':')[0]);
+    card.dataset.receiptId = id;
+    const details = card.querySelector('details');
+    if (details && openIds.has(id)) details.open = true;
+    grid.appendChild(card);
+  }
+  for (const [item, kind] of legacy) grid.appendChild(createLoadedResourceCard(item, kind));
+  for (const item of deferred) grid.appendChild(createDeferredResourceCard(item));
+  grid.querySelectorAll('.btn-inspect-loaded').forEach(btn => btn.addEventListener('click',
+    () => openResourceInspector(btn.dataset.id, btn.dataset.kind)));
+}
+
+function routerScoreMarkup(score) {
+  return Number.isFinite(score) ? `<div class="flex-align-center gap-xs">
+    <progress class="score-meter ${scoreMeterClass(score)}" max="100" value="${Math.min(100,Math.max(0,score * 100))}" aria-label="${routeText('Score', 'Điểm')}"></progress>
+    <span class="font-mono text-xs">${String(score)}</span></div>` : routeText('Unknown', 'Chưa biết');
 }
 
 function createLoadedResourceCard(item, kind) {
   const card = document.createElement('div');
   card.className = 'loaded-resource-card';
-  const name = item.name || item.id || 'unknown';
-  const score = item.score !== undefined ? item.score : 1.0;
-  const scoreClass = scoreMeterClass(score);
-  const sha = item.sha256 || '';
-  const desc = item.description || 'Không có mô tả';
-  const bodyText = item.body || '';
-
-  card.innerHTML = `
-    <div class="resource-header">
-      <div class="flex-align-center gap-xs">
-        <span class="badge ${kind === 'skill' ? 'badge-alive' : 'badge-subtle'}">${kind.toUpperCase()}</span>
-        <strong class="resource-name">${escapeHtml(name)}</strong>
-      </div>
-      <div class="flex-align-center gap-xs">
-        <progress class="score-meter ${scoreClass}" max="100" value="${Math.round(score * 100)}"></progress>
-        <span class="font-mono text-xs">${score.toFixed(3)}</span>
-      </div>
-    </div>
-    <div class="text-xs text-muted">${escapeHtml(desc)}</div>
-    <div class="resource-meta-row text-xs">
-      <span class="font-mono text-muted" title="${escapeHtml(sha)}">SHA: ${escapeHtml(sha ? sha.slice(0, 12) + '…' : '—')}</span>
-      <button type="button" class="btn btn-subtle btn-xs btn-inspect-loaded" data-id="${escapeHtml(item.id || name)}" data-kind="${escapeHtml(kind)}">
-        Mở ngăn Chi tiết
-      </button>
-    </div>
-    ${bodyText ? `
-      <details class="resource-body-details">
-        <summary>Xem nội dung tệp (body) ▾</summary>
-        <pre class="code-block-sm"><code>${escapeHtml(bodyText)}</code></pre>
-      </details>
-    ` : ''}
-  `;
+  const name = item.name || item.id || routeText('Unknown', 'Chưa biết');
+  const hash = item.sha256 || item.body_raw_sha256 || '';
+  card.innerHTML = `<div class="resource-header"><strong>${escapeHtml(name)}</strong>
+    <span class="badge ${item.verified ? 'badge-alive' : 'badge-subtle'}">${item.verified ?
+      routeText('Verified load', 'Đã nạp và xác minh') : routeText('Reported by Hub', 'Hub báo đã nạp')}</span></div>
+    <p class="text-xs font-mono">${Number.isFinite(item.body_bytes) ? item.body_bytes + ' B · ' : ''}SHA-256: ${escapeHtml(hash || '—')}</p>
+    <button type="button" class="btn btn-subtle btn-xs btn-inspect-loaded" data-id="${escapeHtml(item.id || name)}" data-kind="${escapeHtml(kind)}">${routeText('Details', 'Chi tiết')}</button>
+    ${item.body ? `<details class="resource-body-details"><summary>${routeText('View source text', 'Xem nội dung nguồn')}</summary><pre class="code-block-sm"><code></code></pre></details>` : ''}`;
+  if (item.body) card.querySelector('code').textContent = item.body;
   return card;
 }
-
 function createDeferredResourceCard(item) {
   const card = document.createElement('div');
   card.className = 'loaded-resource-card';
-  const name = item.name || item.id || 'unknown';
-  const reason = item.reason || 'Hoãn nạp theo chính sách ngữ cảnh';
+  const name = item.name || item.id || routeText('Unknown', 'Chưa biết');
   const kind = item.kind === 'prompt' || item.type === 'prompt' || item.id?.startsWith('prompt:') ? 'prompt' : 'skill';
-
-  card.innerHTML = `
-    <div class="resource-header">
-      <div class="flex-align-center gap-xs">
-        <span class="badge badge-warning">HOÃN NẠP</span>
-        <strong class="resource-name">${escapeHtml(name)}</strong>
-      </div>
-    </div>
-    <div class="text-xs text-muted">${escapeHtml(reason)}</div>
-    <div class="resource-meta-row text-xs mt-xs">
-      <span class="text-warning">Deferred by context budget</span>
-      <button type="button" class="btn btn-subtle btn-xs btn-inspect-loaded" data-id="${escapeHtml(item.id || name)}" data-kind="${kind}">
-        Mở ngăn Chi tiết
-      </button>
-    </div>
-  `;
+  card.innerHTML = `<div class="resource-header"><strong>${escapeHtml(name)}</strong>
+    <span class="badge badge-warning">${routeText('Deferred', 'Hoãn nạp')}</span></div>
+    <p class="text-xs text-muted">${escapeHtml(item.reason || '')}</p>
+    <button type="button" class="btn btn-subtle btn-xs btn-inspect-loaded" data-id="${escapeHtml(item.id || name)}" data-kind="${kind}">${routeText('Details', 'Chi tiết')}</button>`;
   return card;
 }
-
+function routerScoreStatus(item, view) {
+  const id = qualifiedRouteId(item.id || item.name, item.kind);
+  if (view?.receipts.has(id)) return ['badge-alive', routeText('Verified load', 'Đã nạp và xác minh')];
+  if (view?.errors.has(id)) return ['badge-warning', routeText('Load refused', 'Nạp bị từ chối')];
+  if (view?.selected.has(id)) return ['badge-accent', routeText('Selected by you', 'Bạn đã chọn')];
+  const labels = {
+    offered: ['badge-ready', routeText('Offered by Hub', 'Hub đưa vào danh sách')],
+    excluded: ['badge-warning', routeText('Excluded', 'Bị loại')],
+    below_threshold: ['badge-subtle', routeText('Below threshold', 'Dưới ngưỡng')],
+    not_offered: ['badge-subtle', routeText('Not offered', 'Không có trong danh sách')],
+    deferred: ['badge-warning', routeText('Deferred', 'Hoãn nạp')],
+    loaded: ['badge-alive', routeText('Reported load', 'Hub báo đã nạp')],
+    selected: ['badge-subtle', routeText('Selected by Hub', 'Hub đã chọn')]
+  };
+  return (Object.hasOwn(labels, item.status) ? labels[item.status] : null) || ['badge-subtle', routeText('Unknown', 'Chưa biết')];
+}
 function renderRouteScoresTable() {
   const tbody = document.getElementById('route-scores-table-body');
   if (!tbody) return;
-
-  const { scoresFilter, scoresKindFilter, lastScores } = state.routeStudio;
+  const {scoresFilter, scoresKindFilter, lastScores} = state.routeStudio;
+  const menu = routeChoiceMenu(routeStudioResult?.data);
+  const offered = new Set([...(menu?.skills || []), ...(menu?.prompts || [])].map(row => row.id));
   const filtered = (lastScores || []).filter(item => {
-    if (scoresFilter && !String(item.name || '').toLowerCase().includes(scoresFilter)) {
-      return false;
-    }
-    if (scoresKindFilter === 'qualifying') {
-      return item.status === 'loaded' || item.status === 'selected';
-    }
-    if (scoresKindFilter === 'skill' && item.kind !== 'skill') {
-      return false;
-    }
-    if (scoresKindFilter === 'prompt' && item.kind !== 'prompt') {
-      return false;
-    }
-    return true;
+    if (scoresFilter && !String(item.name || '').toLowerCase().includes(scoresFilter)) return false;
+    if (scoresKindFilter === 'qualifying') return offered.has(qualifiedRouteId(item.id || item.name,item.kind));
+    return !['skill','prompt'].includes(scoresKindFilter) || item.kind === scoresKindFilter;
   });
-
-  tbody.innerHTML = '';
-  if (filtered.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">Không tìm thấy ứng viên nào phù hợp bộ lọc.</td></tr>';
+  tbody.replaceChildren();
+  if (!filtered.length) {
+    tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted">${routeText('No scored candidates match.', 'Không có ứng viên đã chấm phù hợp.')}</td></tr>`;
     return;
   }
-
-  filtered.forEach((item, idx) => {
+  filtered.forEach((item, index) => {
     const tr = document.createElement('tr');
-    const rank = item.rank !== undefined ? item.rank : idx + 1;
-    const name = item.name || 'unknown';
-    const kind = item.kind || 'skill';
-    const scoreVal = item.score !== undefined ? item.score : 0;
-    const scoreClass = scoreMeterClass(scoreVal);
-    const scoreMeter = `<div class="flex-align-center gap-xs">
-      <progress class="score-meter ${scoreClass}" max="100" value="${Math.round(scoreVal * 100)}"></progress>
-      <span class="font-mono text-xs">${scoreVal.toFixed(3)}</span>
-    </div>`;
-
-    let statusBadge = '<span class="badge badge-subtle">Dưới ngưỡng</span>';
-    if (item.status === 'loaded') {
-      statusBadge = '<span class="badge badge-alive">Đã nạp</span>';
-    } else if (item.status === 'selected') {
-      statusBadge = '<span class="badge badge-alive">Được chọn</span>';
-    } else if (item.status === 'deferred') {
-      statusBadge = '<span class="badge badge-warning">Hoãn nạp</span>';
-    }
-
-    tr.innerHTML = `
-      <td class="font-mono text-xs">#${rank}</td>
-      <td><strong>${escapeHtml(name)}</strong></td>
-      <td><span class="badge badge-subtle">${escapeHtml(kind)}</span></td>
-      <td>${scoreMeter}</td>
-      <td>${statusBadge}</td>
-      <td>
-        <button type="button" class="btn btn-subtle btn-xs btn-inspect-candidate" data-id="${escapeHtml(item.id || name)}" data-kind="${escapeHtml(kind)}">
-          Chi tiết
-        </button>
-      </td>
-    `;
+    const name = item.name || item.id || routeText('Unknown', 'Chưa biết');
+    const kind = item.kind;
+    const [badge, text] = routerScoreStatus(item, routeStudioResult);
+    tr.innerHTML = `<td class="font-mono text-xs">#${routerMetric(item.rank ?? index + 1)}</td>
+      <td><strong>${escapeHtml(name)}</strong></td><td>${escapeHtml(kind || '—')}</td>
+      <td>${routerScoreMarkup(item.score)}</td><td><span class="badge ${badge}">${text}</span></td>
+      <td>${['skill','prompt'].includes(kind) ? `<button type="button" class="btn btn-subtle btn-xs btn-inspect-candidate" data-id="${escapeHtml(item.id || name)}" data-kind="${kind}">${routeText('Details', 'Chi tiết')}</button>` : ''}</td>`;
     tbody.appendChild(tr);
   });
-
-  tbody.querySelectorAll('.btn-inspect-candidate').forEach(btn => {
-    btn.addEventListener('click', () => {
-      openResourceInspector(btn.getAttribute('data-id'), btn.getAttribute('data-kind'));
-    });
-  });
+  tbody.querySelectorAll('.btn-inspect-candidate').forEach(btn => btn.addEventListener('click',
+    () => openResourceInspector(btn.dataset.id, btn.dataset.kind)));
 }
 
 function renderSemanticStudioResults(data, queryText) {
   renderRouteChoicePool(null);
-  const resultsBox = document.getElementById('route-studio-results');
-  if (!resultsBox) return;
-
-  // Toggle sections: show semantic, hide TEMPR/Scores
-  const bannerEl = document.getElementById('decision-banner');
-  const temprEl = document.getElementById('tempr-coverage-panel');
-  const loadedEl = document.getElementById('loaded-resources-section');
-  const scoredEl = document.getElementById('scored-candidates-section');
-  const semanticEl = document.getElementById('semantic-hits-section');
-
-  if (bannerEl) bannerEl.hidden = false;
-  if (temprEl) temprEl.hidden = true;
-  if (loadedEl) loadedEl.hidden = true;
-  if (scoredEl) scoredEl.hidden = true;
-  if (semanticEl) semanticEl.hidden = false;
-
-  // 1. Decision Summary Banner
-  const outcomeBadgeEl = document.getElementById('decision-outcome-badge');
-  if (outcomeBadgeEl) {
-    outcomeBadgeEl.textContent = 'TÌM KIẾM NGỮ NGHĨA dGPU';
-    outcomeBadgeEl.className = 'decision-badge badge-alive';
+  routerHide(['tempr-coverage-panel','loaded-resources-section','scored-candidates-section','btn-carry-followup-state','route-normalized-context'], true);
+  routerHide(['route-studio-results','decision-banner','semantic-hits-section'], false);
+  const ok = data.status === 'ok' || data.status === 'OK';
+  const badge = routerPut('decision-outcome-badge', ok ? routeText('Search complete', 'Đã tìm kiếm') :
+    (data.status || routeText('Search status unknown', 'Chưa biết trạng thái tìm kiếm')));
+  if (badge) badge.className = 'decision-badge ' + (ok ? 'badge-alive' : 'badge-subtle');
+  routerPut('decision-title', routeText('Semantic search', 'Tìm kiếm ngữ nghĩa'));
+  routerPut('decision-subtitle', routeText('Retrieval only · no routing score', 'Chỉ truy xuất · không chấm điểm định tuyến'));
+  routerPut('decision-elapsed', routerMetric(data.elapsed_ms, ' ms'));
+  routerPut('decision-trigger', routerModeLabel('semantic'));
+  routerGpu(data.gpu_resident);
+  routerPut('decision-provider', data.model || routeText('Embedding model unknown', 'Chưa biết model embedding'));
+  routerPut('decision-reason-text', data.reason || data.error || truncateStr(queryText, 80));
+  routerPut('decision-route-id', routeText('Not applicable', 'Không áp dụng'));
+  routerPut('semantic-hits-latency', routerMetric(data.elapsed_ms, ' ms'));
+  const tbody = document.getElementById('semantic-hits-table-body');
+  if (!tbody) return;
+  tbody.replaceChildren();
+  const hits = Array.isArray(data.hits) ? data.hits : [];
+  if (!hits.length) {
+    tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted">${ok ? routeText('No semantic matches.', 'Không có kết quả ngữ nghĩa.') :
+      routeText('No search results available.', 'Chưa có kết quả tìm kiếm.')}</td></tr>`;
   }
-
-  const elapsedEl = document.getElementById('decision-elapsed');
-  if (elapsedEl) elapsedEl.textContent = `${data.elapsed_ms !== undefined ? data.elapsed_ms : '—'} ms`;
-
-  const triggerEl = document.getElementById('decision-trigger');
-  if (triggerEl) triggerEl.textContent = 'Search: SEMANTIC';
-
-  const gpuEl = document.getElementById('decision-gpu');
-  if (gpuEl) {
-    const isGpu = Boolean(data.gpu_resident);
-    gpuEl.textContent = isGpu ? 'dGPU: Thường trú VRAM' : 'CPU/RAM phối hợp';
-    gpuEl.className = isGpu ? 'badge badge-alive' : 'badge badge-subtle';
-  }
-
-  const provEl = document.getElementById('decision-provider');
-  if (provEl) provEl.textContent = 'BGE-M3 (0 phí model)';
-
-  const reasonEl = document.getElementById('decision-reason-text');
-  if (reasonEl) {
-    reasonEl.textContent = `Truy vấn vector ngữ nghĩa dGPU cho nội dung: "${truncateStr(queryText, 80)}"`;
-  }
-
-  const routeIdEl = document.getElementById('decision-route-id');
-  if (routeIdEl) routeIdEl.textContent = 'N/A (Semantic Direct Query)';
-
-  // 2. Semantic Hits Table
-  const hitsTableBody = document.getElementById('semantic-hits-table-body');
-  const latEl = document.getElementById('semantic-hits-latency');
-  if (latEl) latEl.textContent = `${data.elapsed_ms || 0} ms`;
-
-  const hits = data.hits || [];
-  if (hitsTableBody) {
-    hitsTableBody.innerHTML = '';
-    if (hits.length === 0) {
-      hitsTableBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">Không tìm thấy kết quả ngữ nghĩa nào phù hợp.</td></tr>';
-    } else {
-      hits.forEach((hit, idx) => {
-        const tr = document.createElement('tr');
-        const rank = hit.rank !== undefined ? hit.rank : idx + 1;
-        const resId = hit.id || `hit-${rank}`;
-        const kind = resId.startsWith('prompt:') ? 'prompt' : 'skill';
-        const cleanName = resId.replace(/^(skill|prompt|document):/, '');
-        const scoreVal = hit.raw_score !== undefined ? hit.raw_score : 0;
-        const scoreClass = scoreMeterClass(scoreVal);
-        const scoreMeter = `<div class="flex-align-center gap-xs">
-          <progress class="score-meter ${scoreClass}" max="100" value="${Math.round(scoreVal * 100)}"></progress>
-          <span class="font-mono text-xs">${scoreVal.toFixed(3)}</span>
-        </div>`;
-
-        tr.innerHTML = `
-          <td class="font-mono text-xs">#${rank}</td>
-          <td><strong>${escapeHtml(cleanName)}</strong></td>
-          <td><span class="badge badge-subtle">${escapeHtml(kind)}</span></td>
-          <td>${scoreMeter}</td>
-          <td class="text-xs text-muted">${escapeHtml(hit.evidence?.summary || hit.evidence?.chunk || 'Vector similarity')}</td>
-          <td>
-            <button type="button" class="btn btn-subtle btn-xs btn-inspect-semantic" data-id="${escapeHtml(cleanName)}" data-kind="${escapeHtml(kind)}">
-              Chi tiết
-            </button>
-          </td>
-        `;
-        hitsTableBody.appendChild(tr);
-      });
-
-      hitsTableBody.querySelectorAll('.btn-inspect-semantic').forEach(btn => {
-        btn.addEventListener('click', () => {
-          openResourceInspector(btn.getAttribute('data-id'), btn.getAttribute('data-kind'));
-        });
-      });
-    }
-  }
-
-  resultsBox.hidden = false;
+  hits.forEach((hit, index) => {
+    const tr = document.createElement('tr');
+    const id = hit.id || '';
+    const match = /^(skill|prompt):(.+)$/.exec(id);
+    const name = match?.[2] || id || routeText('Unknown', 'Chưa biết');
+    tr.innerHTML = `<td class="font-mono text-xs">#${routerMetric(hit.rank ?? index + 1)}</td>
+      <td><strong>${escapeHtml(name)}</strong></td><td>${escapeHtml(match?.[1] || '—')}</td>
+      <td>${routerScoreMarkup(hit.raw_score)}</td><td>${escapeHtml(hit.evidence?.summary || hit.evidence?.chunk || '—')}</td>
+      <td>${match ? `<button type="button" class="btn btn-subtle btn-xs">${routeText('Details', 'Chi tiết')}</button>` : ''}</td>`;
+    if (match) tr.querySelector('button').addEventListener('click', () => openResourceInspector(name, match[1]));
+    tbody.appendChild(tr);
+  });
 }
 
 async function loadRoutingView() {
@@ -3475,7 +3418,7 @@ function setupEventListeners() {
     chip.addEventListener('click', () => {
       const taskText = chip.getAttribute('data-task');
       if (overviewInput) overviewInput.value = taskText;
-      triggerOverviewQuickRoute(taskText);
+      overviewInput?.focus();
     });
   });
 
@@ -3620,6 +3563,7 @@ function setupEventListeners() {
       const input = document.getElementById('route-task-input');
       if (input) {
         input.value = taskText;
+        invalidateRouterStudio();
         input.focus();
       }
     });
@@ -3643,9 +3587,7 @@ function setupEventListeners() {
   const btnClearRoute = document.getElementById('btn-clear-route-task');
   if (btnClearRoute) {
     btnClearRoute.addEventListener('click', () => {
-      ++routeStudioRequest;
-      renderRouteChoicePool(null);
-      document.getElementById('route-studio-loading').hidden = true;
+      invalidateRouterStudio();
       const input = document.getElementById('route-task-input');
       if (input) input.value = '';
       for (const key of routeContextFields) {
@@ -3662,6 +3604,17 @@ function setupEventListeners() {
       if (results) results.hidden = true;
     });
   }
+
+  for (const id of ['route-task-input','route-task-id-input',...routeContextFields.map(key => 'route-context-' + key)]) {
+    document.getElementById(id)?.addEventListener('input', invalidateRouterStudio);
+  }
+  document.getElementById('route-include-graph')?.addEventListener('change', invalidateRouterStudio);
+  document.getElementById('route-studio-mode')?.addEventListener('change', () => {
+    invalidateRouterStudio();
+    updateRouterControls();
+  });
+  localizeRouterStudio();
+  window.addEventListener('skillhub:languagechange', localizeRouterStudio);
 
   const btnSyncHist = document.getElementById('btn-sync-routing-history');
   if (btnSyncHist) {

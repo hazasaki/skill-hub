@@ -263,6 +263,7 @@ class Dashboard:
         }
         ops = [{'operation':x,'supported':True,'reason':('Dashboard-owned version-pinned quality disposition only' if x=='quality.disposition' else 'Dashboard-owned settings/snapshot only' if x.startswith('config.') else 'Fixed allowlisted read' if x in ('mcp.health','resource.search','resource.detail') else 'Versioned quarantine only; no runtime promotion'),'risk':'read-only' if x in ('mcp.health','resource.search','resource.detail') else 'isolated-write'} for x in supported]
 
+        h = {}
         sem_status = False
         sem_reason = 'Semantic query adapter not connected; prioritize dGPU offload to reduce RAM, CPU/RAM coordination allowed'
         try:
@@ -272,10 +273,12 @@ class Dashboard:
                 warmup = fields.get('warmup', {})
                 if warmup.get('ok'):
                     sem_status = True
-                    if warmup.get('gpu_resident'):
-                        sem_reason = 'Live dGPU semantic retrieval connected; BGE-M3 offloaded to VRAM with bounded pipeline'
+                    if warmup.get('gpu_resident') is True:
+                        sem_reason = 'Semantic retrieval is ready and reports GPU residency'
+                    elif warmup.get('gpu_resident') is False:
+                        sem_reason = 'Semantic retrieval is ready and reports no GPU residency'
                     else:
-                        sem_reason = 'Live semantic retrieval connected; shared backend query ready (CPU/RAM coordinated pipeline, dGPU preferred)'
+                        sem_reason = 'Semantic retrieval is ready; GPU residency is unknown'
                 else:
                     sem_reason = 'Backend semantic engine warmup incomplete or index unavailable; shared retrieval adapter required'
             elif h.get('status') == 'degraded':
@@ -304,7 +307,7 @@ class Dashboard:
                 elif fields.get('model_routing') == 'disabled':
                     route_reason = 'Model routing is disabled in this Skill Hub profile'
                 elif route_status:
-                    route_reason = 'Interactive route_task tester connected to live Skill Hub router (TEMPR + Elephant decision model, explicit operator trigger)'
+                    route_reason = 'Interactive route_task tester connected to live Skill Hub router'
         except Exception:
             route_reason = 'Skill Hub router backend unavailable or warming up on port 8765'
 
@@ -406,7 +409,7 @@ class Dashboard:
             elif module=='semantic':
                 data=self.sources.semantic_search(q.get('q',''),q.get('limit',10))
                 if data.get('status')!='ok': status='partial'
-                limits.append('Semantic search delegates to live local dGPU BGE-M3 model on loopback 8765; no paid model calls.')
+                limits.append('Semantic search queries the local Hub retrieval endpoint without invoking model scoring.')
             elif module=='integrations':
                 data,sources=self.sources.integrations(q.get('probe'))
                 status='partial'; limits.append('Projection is configured state; tool catalogs are snapshots. Explicit probe=skill-hub checks only the fixed loopback health endpoint.')
@@ -457,7 +460,7 @@ class Dashboard:
             task_id=task_id,
             **({'task_state': payload['task_state']} if 'task_state' in payload else {})
         )
-        status = 'ok' if data.get('status') == 'ok' else 'unavailable'
+        status = data['status']
         limits = [
             'Interactive route_task calls the configured model provider and can incur charges.'
         ]
@@ -479,7 +482,8 @@ class Dashboard:
             loaded_skill_ids_and_versions=payload.get('loaded_skill_ids_and_versions'),
             bundle_sha256=payload.get('bundle_sha256'),
         )
-        ok = isinstance(data, dict) and not data.get('error') and data.get('load_verified') is True
+        ok = (isinstance(data, dict) and not data.get('error') and data.get('load_verified') is True
+              and data.get('verified_in_client') is True)
         return {'schema': 'skill-hub.dashboard.v1', 'observed_at': now(),
                 'status': 'ok' if ok else 'error', 'data': data}
 
@@ -624,7 +628,7 @@ class Handler(BaseHTTPRequestHandler):
                     envelope = self.server.app.route_task(body)
                 except ValueError as ve:
                     return self.reply(400, {'error': str(ve)})
-                status_code = 200 if envelope.get('status') == 'ok' else 503
+                status_code = {'ok': 200, 'busy': 429, 'error': 502}.get(envelope.get('status'), 503)
                 data = envelope['data']
                 if 'INVALID_TASK_STATE' in (data.get('reason'), data.get('error')):
                     status_code = 400

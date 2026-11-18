@@ -63,4 +63,14 @@ node src/hub-dashboard/test_intake_ui.js
 
 ### Routing compatibility
 
-The bundled no-key catalog supports browsing, search and resource details. Router Studio requests model scoring only when explicitly submitted. It needs a configured Hub that exposes `POST /route_task`; the standalone catalog quickstart can run without that endpoint. A compatible response may include a structured task state and a choice pool. “Đề xuất” marks a recommendation and “Đã nạp” requires a matching load receipt. Dashboard catalog details remain bounded previews. The routing adapter requests full results and rejects deferred transport or JSON over 64 MiB. The existing credential redaction still applies to displayed text.
+The bundled keyless catalog supports browsing, search and resource details.
+For model scoring with the standalone Hub, enable the model profile and use
+Router Studio's **Metadata ranking** mode. Routing sends the task to the
+configured scorer only when you submit it and may incur charges. TEMPR and
+semantic search require a connected Hub that supports those retrieval modes.
+The [Router Studio guide](../../src/hub-dashboard/README.md#router-studio)
+explains menu choices, verified loads, and follow-up.
+
+Dashboard catalog details remain bounded previews. The routing adapter requests
+full results and rejects deferred transport or JSON over 64 MiB. The existing
+credential redaction still applies to displayed text.

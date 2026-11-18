@@ -166,8 +166,8 @@
             <span>Refresh every 15s</span>
           </label>
 
-          <button id="btn-open-router-studio" class="btn btn-primary btn-highlight" title="Mở trực tiếp Router Studio để kiểm thử lệnh route_task">
-            <span>Kiểm thử router · có thể tính phí</span>
+          <button id="btn-open-router-studio" class="btn btn-primary btn-highlight" title="Open Router Studio" data-router-vi-title="Mở Router Studio">
+            <span data-router-vi="Router Studio">Router Studio</span>
           </button>
 
           <button id="refresh-btn" class="btn btn-subtle" title="Refresh the current view">
@@ -210,28 +210,25 @@
           <div class="card route-quicklaunch-card mb-md">
             <div class="card-header">
               <div class="flex-align-center gap-xs">
-                <span class="badge badge-accent font-bold">⚡ ROUTE_TASK</span>
-                <h3 class="card-title">Bàn phóng Kiểm thử Nhanh route_task</h3>
+                <h3 class="card-title" data-router-vi="Kiểm thử định tuyến nhanh">Quick router test</h3>
               </div>
-              <span class="badge badge-subtle">Hệ thống Router System-1 &middot; TEMPR + Elephant</span>
             </div>
             <div class="card-body">
-              <p class="text-sm text-muted mb-sm">
-                Thử định tuyến với mô hình Elephant. Mỗi lần chạy có thể phát sinh phí; chỉ chạy khi bạn chủ động bấm nút.
+              <p class="text-sm text-muted mb-sm" data-router-vi="Mô tả tác vụ để chuẩn bị lượt kiểm thử trong Router Studio.">Describe a task to prepare a test in Router Studio.
               </p>
               <div class="quicklaunch-input-row">
-                <input type="text" id="overview-route-input" class="form-control" placeholder="Ví dụ: Thiết kế lại giao diện Dashboard hiện đại, tối ưu UX và kiểm tra CSP..." aria-label="Mô tả công việc cần kiểm thử định tuyến">
-                <button type="button" id="btn-overview-run-route" class="btn btn-primary" title="Chuyển đến Router Studio và chạy kiểm thử ngay">
-                  <span>🚀 Kiểm thử ngay</span>
+                <input type="text" id="overview-route-input" class="form-control" placeholder="Example: Review the dashboard usability and content security policy" data-router-vi-placeholder="Ví dụ: Thiết kế lại giao diện Dashboard hiện đại, tối ưu UX và kiểm tra CSP..." aria-label="Task to test in Router Studio" data-router-vi-aria-label="Mô tả công việc cần kiểm thử định tuyến">
+                <button type="button" id="btn-overview-run-route" class="btn btn-primary" title="Open this task in Router Studio" data-router-vi-title="Mở tác vụ này trong Router Studio">
+                  <span data-router-vi="Mở trong Router Studio">Open in Router Studio</span>
                 </button>
               </div>
               <div class="quicklaunch-presets mt-sm">
-                <span class="text-xs text-muted">Mẫu thử nhanh 1-chạm:</span>
+                <span class="text-xs text-muted" data-router-vi="Tác vụ mẫu">Example tasks</span>
                 <div class="preset-chips-wrap">
-                  <button type="button" class="preset-chip" data-task="Thiết kế lại giao diện Dashboard hiện đại, tối ưu UX và kiểm tra CSP">🎨 Thiết kế UI/UX &amp; CSP</button>
-                  <button type="button" class="preset-chip" data-task="Viết unit test pytest và debug lỗi kết nối cơ sở dữ liệu SQLite">🧪 Test SQLite &amp; Pytest</button>
-                  <button type="button" class="preset-chip" data-task="Rà soát bảo mật API endpoint, chống XSS, CSRF và lộ token">🛡️ Bảo mật API &amp; CSRF</button>
-                  <button type="button" class="preset-chip" data-task="Khám phá kiến trúc codebase và truy vết phụ thuộc bằng sơ đồ đồ thị">🕸️ Sơ đồ Kiến trúc &amp; Graph</button>
+                  <button type="button" class="preset-chip" data-task="Redesign the dashboard and review its usability and content security policy." data-router-vi-task="Thiết kế lại giao diện Dashboard hiện đại, tối ưu UX và kiểm tra CSP" data-router-vi="Giao diện Dashboard và CSP">Dashboard usability and CSP</button>
+                  <button type="button" class="preset-chip" data-task="Write pytest unit tests and diagnose a SQLite connection error." data-router-vi-task="Viết unit test pytest và debug lỗi kết nối cơ sở dữ liệu SQLite" data-router-vi="SQLite và pytest">SQLite and pytest</button>
+                  <button type="button" class="preset-chip" data-task="Review API endpoints for XSS, CSRF, and token exposure." data-router-vi-task="Rà soát bảo mật API endpoint, chống XSS, CSRF và lộ token" data-router-vi="Bảo mật API">API security</button>
+                  <button type="button" class="preset-chip" data-task="Explore the codebase architecture and trace dependencies." data-router-vi-task="Khám phá kiến trúc codebase và truy vết phụ thuộc bằng sơ đồ đồ thị" data-router-vi="Kiến trúc và phụ thuộc">Architecture and dependencies</button>
                 </div>
               </div>
             </div>
@@ -466,38 +463,33 @@
         <!-- 04: VIEW ROUTING -->
         <section id="view-routing" class="view-panel" role="tabpanel" aria-labelledby="tab-routing" hidden>
           <div class="section-lead">
-            <p>Kiểm thử tương tác bộ điều hướng route_task và quan sát các quyết định thực thi từ nhật ký telemetry.</p>
+            <p data-router-vi="Kiểm thử định tuyến và xem kết quả được ghi nhận.">Test routing and inspect the recorded results.</p>
           </div>
 
           <!-- Bàn Kiểm thử Trực tiếp Router Studio -->
           <div class="card route-studio-panel mb-md" id="route-studio-panel">
             <div class="card-header">
               <div class="flex-align-center gap-xs">
-                <span class="badge badge-accent font-bold">⚡ INTERACTIVE STUDIO</span>
-                <h3 class="card-title">Bộ điều hướng &amp; Kiểm thử Trực tiếp route_task</h3>
+                <h3 class="card-title" data-router-vi="Router Studio">Router Studio</h3>
               </div>
               <div class="flex-align-center gap-xs">
-                <span class="badge badge-subtle" id="route-backend-status-badge">Backend: Sẵn sàng</span>
-                <span class="badge badge-subtle" id="route-gpu-badge">dGPU: BGE-M3 VRAM</span>
+                <span class="badge badge-subtle" id="route-backend-status-badge" hidden></span>
+                <span class="badge badge-subtle" id="route-gpu-badge" hidden></span>
               </div>
             </div>
 
             <div class="card-body">
               <!-- Quick Presets Row -->
               <div class="route-presets-bar mb-sm">
-                <span class="text-xs text-muted">Mẫu tác vụ thử nghiệm 1-chạm:</span>
+                <span class="text-xs text-muted" data-router-vi="Tác vụ mẫu">Example tasks</span>
                 <div class="preset-chips-wrap">
-                  <button type="button" class="route-preset-btn" data-task="Thiết kế lại giao diện Dashboard hiện đại, tối ưu UX và kiểm tra CSP">
-                    🎨 Thiết kế UI/UX &amp; CSP
+                  <button type="button" class="route-preset-btn" data-task="Redesign the dashboard and review its usability and content security policy." data-router-vi-task="Thiết kế lại giao diện Dashboard hiện đại, tối ưu UX và kiểm tra CSP" data-router-vi="Giao diện Dashboard và CSP">Dashboard usability and CSP
                   </button>
-                  <button type="button" class="route-preset-btn" data-task="Viết unit test pytest và debug lỗi kết nối cơ sở dữ liệu SQLite">
-                    🧪 Test SQLite &amp; Pytest
+                  <button type="button" class="route-preset-btn" data-task="Write pytest unit tests and diagnose a SQLite connection error." data-router-vi-task="Viết unit test pytest và debug lỗi kết nối cơ sở dữ liệu SQLite" data-router-vi="SQLite và pytest">SQLite and pytest
                   </button>
-                  <button type="button" class="route-preset-btn" data-task="Rà soát bảo mật API endpoint, chống XSS, CSRF và lộ token">
-                    🛡️ Bảo mật API &amp; CSRF
+                  <button type="button" class="route-preset-btn" data-task="Review API endpoints for XSS, CSRF, and token exposure." data-router-vi-task="Rà soát bảo mật API endpoint, chống XSS, CSRF và lộ token" data-router-vi="Bảo mật API">API security
                   </button>
-                  <button type="button" class="route-preset-btn" data-task="Khám phá kiến trúc codebase và truy vết phụ thuộc bằng sơ đồ đồ thị">
-                    🕸️ Sơ đồ Kiến trúc &amp; Graph
+                  <button type="button" class="route-preset-btn" data-task="Explore the codebase architecture and trace dependencies." data-router-vi-task="Khám phá kiến trúc codebase và truy vết phụ thuộc bằng sơ đồ đồ thị" data-router-vi="Kiến trúc và phụ thuộc">Architecture and dependencies
                   </button>
                 </div>
               </div>
@@ -506,89 +498,105 @@
               <div class="form-group mb-sm">
                 <div class="flex-between mb-xs">
                   <label for="route-task-input" class="form-label">
-                    <strong>Mô tả Yêu cầu Tác vụ (Task State):</strong>
+                    <strong data-router-vi="Mô tả tác vụ">Task description</strong>
                   </label>
-                  <span class="text-xs text-muted">Phím tắt: <kbd>Ctrl</kbd> + <kbd>Enter</kbd> để chạy</span>
+                  <span class="text-xs text-muted"><span data-router-vi="Chạy bằng">Run with</span> <kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>Enter</kbd></span>
                 </div>
-                <textarea id="route-task-input" class="form-control" rows="3" placeholder="Nhập trạng thái công việc hoặc câu hỏi tự nhiên cần router System-1 định tuyến kỹ năng và prompt phù hợp..."></textarea>
+                <textarea id="route-task-input" class="form-control" rows="3" placeholder="Describe the task or ask a question" data-router-vi-placeholder="Nhập trạng thái công việc hoặc câu hỏi tự nhiên cần router System-1 định tuyến kỹ năng và prompt phù hợp..."></textarea>
               </div>
 
-<details class="form-group mb-sm"><summary>Ngữ cảnh bổ sung (không bắt buộc)</summary><p class="text-xs text-muted">Để trống nghĩa là chưa cung cấp. Các danh sách nhập mỗi dòng một mục. Không tự xác nhận công cụ hoặc tài nguyên chưa có.</p><label for="route-context-current_step">Bước hiện tại</label><textarea id="route-context-current_step" class="form-control mb-sm" rows="2"></textarea><label for="route-context-desired_output">Kết quả mong muốn</label><textarea id="route-context-desired_output" class="form-control mb-sm" rows="2"></textarea><label for="route-context-artifact_types">Loại tài liệu / sản phẩm</label><textarea id="route-context-artifact_types" class="form-control mb-sm" rows="2"></textarea><label for="route-context-available_tools">Công cụ đang có</label><textarea id="route-context-available_tools" class="form-control mb-sm" rows="2"></textarea><label for="route-context-constraints">Ràng buộc</label><textarea id="route-context-constraints" class="form-control mb-sm" rows="2"></textarea><label for="route-context-loaded_skill_ids_and_versions">Tài nguyên đã nạp — mảng JSON gồm id, version, content_sha256</label><textarea id="route-context-loaded_skill_ids_and_versions" class="form-control mb-sm" rows="2"></textarea><label for="route-context-explicit_skill_ids">Skill được yêu cầu rõ tên / ID</label><textarea id="route-context-explicit_skill_ids" class="form-control mb-sm" rows="2"></textarea></details>
+              <details class="form-group mb-sm">
+                <summary data-router-vi="Ngữ cảnh bổ sung (không bắt buộc)">Additional context (optional)</summary>
+                <p class="text-xs text-muted" data-router-vi="Để trống nghĩa là chưa cung cấp. Các danh sách nhập mỗi dòng một mục. Không tự xác nhận công cụ hoặc tài nguyên chưa có.">Leave unknown fields blank. For lists, enter one item per line. Only claim tools and resources you have.</p>
+                <label for="route-context-current_step" data-router-vi="Bước hiện tại">Current step</label>
+                <textarea id="route-context-current_step" class="form-control mb-sm" rows="2"></textarea>
+                <label for="route-context-desired_output" data-router-vi="Kết quả mong muốn">Desired output</label>
+                <textarea id="route-context-desired_output" class="form-control mb-sm" rows="2"></textarea>
+                <label for="route-context-artifact_types" data-router-vi="Loại tài liệu / sản phẩm">Artifact types</label>
+                <textarea id="route-context-artifact_types" class="form-control mb-sm" rows="2"></textarea>
+                <label for="route-context-available_tools" data-router-vi="Công cụ đang có">Available tools</label>
+                <textarea id="route-context-available_tools" class="form-control mb-sm" rows="2"></textarea>
+                <label for="route-context-constraints" data-router-vi="Ràng buộc">Constraints</label>
+                <textarea id="route-context-constraints" class="form-control mb-sm" rows="2"></textarea>
+                <label for="route-context-loaded_skill_ids_and_versions" data-router-vi="Tài nguyên đã nạp (mảng JSON gồm id, content_sha256 và có thể kèm version, bundle_sha256)">Loaded resources (JSON array with id, content_sha256 and optional version and bundle_sha256)</label>
+                <textarea id="route-context-loaded_skill_ids_and_versions" class="form-control mb-sm" rows="2"></textarea>
+                <label for="route-context-explicit_skill_ids" data-router-vi="Skill được yêu cầu rõ tên / ID">Explicit skill names or IDs</label>
+                <textarea id="route-context-explicit_skill_ids" class="form-control mb-sm" rows="2"></textarea>
+              </details>
               <!-- Controls Row: Mode, Task ID, Graph, Actions -->
               <div class="route-studio-controls">
                 <div class="control-item mode-select-wrap">
-                  <label for="route-studio-mode" class="text-xs text-muted">Chế độ thực thi:</label>
+                  <label for="route-studio-mode" class="text-xs text-muted" data-router-vi="Chế độ">Mode</label>
                   <select id="route-studio-mode" class="form-control">
-                    <option value="metadata" selected>route_task: Metadata Ranking</option>
-                    <option value="tempr">route_task: TEMPR 4-Engine</option>
-                    <option value="semantic">Tìm kiếm Ngữ nghĩa nhanh (BGE-M3 dGPU, 0 phí model)</option>
+                    <option value="metadata" selected data-router-vi="Định tuyến theo metadata">Metadata routing</option>
+                    <option value="tempr" data-router-vi="Định tuyến TEMPR">TEMPR routing</option>
+                    <option value="semantic" data-router-vi="Tìm kiếm ngữ nghĩa">Semantic search</option>
                   </select>
                 </div>
 
                 <div class="control-item task-id-wrap">
-                  <label for="route-task-id-input" class="text-xs text-muted">Task ID (tùy chọn):</label>
-                  <input type="text" id="route-task-id-input" class="form-control" placeholder="Tự sinh nếu để trống">
+                  <label for="route-task-id-input" class="text-xs text-muted" data-router-vi="ID tác vụ (không bắt buộc)">Task ID (optional)</label>
+                  <input type="text" id="route-task-id-input" class="form-control" placeholder="Leave blank to let the router assign the ID" data-router-vi-placeholder="Tự sinh nếu để trống">
                 </div>
 
                 <div class="control-item checkbox-wrap">
                   <label class="checkbox-label" for="route-include-graph">
                     <input type="checkbox" id="route-include-graph">
-                    <span>Kèm kiểm tra Graph</span>
+                    <span data-router-vi="Kèm bằng chứng từ đồ thị">Include graph evidence</span>
                   </label>
                 </div>
 
                 <div class="control-item actions-wrap">
-                  <button type="button" id="btn-carry-followup-state" class="btn btn-subtle" title="Nạp danh tính tài nguyên đã tải từ lượt trước để kiểm thử follow-up" hidden>Follow-up từ lượt trước</button>
-                  <button type="button" id="btn-clear-route-task" class="btn btn-subtle" title="Xóa nội dung nhập">Xóa</button>
-                  <p class="quality-caption">Chạy mô hình Elephant có thể phát sinh phí. Chỉ thực hiện khi bạn chủ động bấm nút.</p>
-                  <button type="button" id="btn-run-route-task" class="btn btn-primary" title="Chạy kiểm thử định tuyến ngay">
-                    <span>🚀 Chạy kiểm thử</span>
+                  <button type="button" id="btn-carry-followup-state" class="btn btn-subtle" title="Use verified resource identities in the next request" data-router-vi-title="Dùng danh tính tài nguyên đã xác minh cho yêu cầu tiếp theo" hidden data-router-vi="Dùng cho lượt tiếp theo">Use in follow-up</button>
+                  <button type="button" id="btn-clear-route-task" class="btn btn-subtle" title="Clear the test form" data-router-vi-title="Xóa nội dung nhập" data-router-vi="Xóa">Clear</button>
+                  <p class="quality-caption" id="route-model-warning" data-router-vi="Định tuyến gửi tác vụ tới nhà cung cấp mô hình đã cấu hình và có thể phát sinh phí.">Routing sends the task to the configured model provider and may incur charges.</p>
+                  <button type="button" id="btn-run-route-task" class="btn btn-primary" title="Run this test" data-router-vi-title="Chạy lượt kiểm thử này">
+                    <span data-router-vi="Chạy kiểm thử">Run test</span>
                   </button>
                 </div>
               </div>
 
               <!-- Loading / Busy state indicator -->
-              <div id="route-studio-loading" class="route-studio-loading text-center p-md" hidden>
-                <div class="spin-icon text-lg mb-xs">↻</div>
-                <div class="text-muted text-sm" id="route-studio-loading-text">Đang thực thi chuỗi TEMPR 4-Engine và mô hình Elephant...</div>
+              <div id="route-studio-loading" class="route-studio-loading text-center p-md" role="status" hidden>
+                <div class="spin-icon text-lg mb-xs" aria-hidden="true">↻</div>
+                <div class="text-muted text-sm" id="route-studio-loading-text"></div>
               </div>
 
               <!-- Error container -->
-              <div id="route-studio-error" class="alert-box alert-danger mt-sm" hidden></div>
+              <div id="route-studio-error" class="alert-box alert-danger mt-sm" role="alert" hidden></div>
 
               <!-- Rich Results Display -->
-<pre id="route-normalized-context" class="text-xs" hidden></pre>
+              <pre id="route-normalized-context" class="text-xs" hidden></pre>
               <div id="route-studio-results" class="route-studio-results mt-md" hidden>
                 <!-- 1. Decision Summary Banner -->
                 <div class="decision-banner mb-md" id="decision-banner">
                   <div class="decision-header flex-between-wrap">
                     <div class="flex-align-center gap-sm">
-                      <span class="decision-badge" id="decision-outcome-badge">SELECTED</span>
+                      <span class="decision-badge" id="decision-outcome-badge" role="status">—</span>
                       <div class="decision-headline">
-                        <strong id="decision-title">Kết quả Định tuyến</strong>
-                        <div class="text-xs text-muted" id="decision-subtitle">Mô hình System-1 Elephant đã đưa ra quyết định</div>
+                        <strong id="decision-title">—</strong>
+                        <div class="text-xs text-muted" id="decision-subtitle"></div>
                       </div>
                     </div>
                     <div class="decision-meta-badges flex-align-center gap-xs">
-                      <span class="badge badge-subtle font-mono" id="decision-elapsed">0 ms</span>
-                      <span class="badge badge-subtle" id="decision-trigger">Trigger: MODEL</span>
-                      <span class="badge badge-subtle" id="decision-gpu">dGPU: —</span>
-                      <span class="badge badge-subtle font-mono text-xs" id="decision-provider">Elephant 9B</span>
+                      <span class="badge badge-subtle font-mono" id="decision-elapsed">—</span>
+                      <span class="badge badge-subtle" id="decision-trigger">—</span>
+                      <span class="badge badge-subtle" id="decision-gpu">—</span>
+                      <span class="badge badge-subtle font-mono text-xs" id="decision-provider">—</span>
                     </div>
                   </div>
 
                   <div class="decision-body mt-sm" id="decision-body-details">
                     <div class="decision-reason-box" id="decision-reason-box">
-                      <span class="text-muted text-xs">Lý do định tuyến (Reason):</span>
+                      <span class="text-muted text-xs" data-router-vi="Lý do">Reason</span>
                       <div id="decision-reason-text" class="text-sm"></div>
                     </div>
                     <div class="decision-receipt-row flex-between-wrap mt-xs text-xs text-muted">
                       <div id="decision-receipt-wrap">
-                        <span>Mã lượt Telemetry (route_id): </span>
+                        <span data-router-vi="ID lượt trong telemetry">Telemetry route ID </span>
                         <code id="decision-route-id" class="font-mono">—</code>
                       </div>
-                      <button type="button" id="btn-sync-routing-history" class="btn btn-xs btn-subtle">
-                        Cập nhật Lịch sử bên dưới ↓
+                      <button type="button" id="btn-sync-routing-history" class="btn btn-xs btn-subtle" data-router-vi="Làm mới lịch sử định tuyến">Refresh route history
                       </button>
                     </div>
                   </div>
@@ -597,77 +605,81 @@
                 <!-- 2. TEMPR 4-Engine Candidate Preparation & Coverage Grid -->
                 <div class="tempr-coverage-panel mb-md" id="tempr-coverage-panel">
                   <div class="panel-subheading flex-between">
-                    <strong>Chuỗi Chuẩn bị Ứng viên TEMPR 4-Engine &amp; Độ Bao phủ Catalog</strong>
-                    <span class="text-xs text-muted" id="coverage-catalog-stats">Bao phủ: —</span>
+                    <strong data-router-vi="Truy xuất và độ phủ">Retrieval and coverage</strong>
+                    <span class="text-xs text-muted" id="coverage-catalog-stats">—</span>
                   </div>
 
                   <div class="tempr-engines-grid mt-xs">
                     <div class="tempr-engine-card" id="engine-card-semantic">
                       <div class="engine-header">
-                        <span class="engine-name">1. Semantic (dGPU)</span>
-                        <span class="badge badge-subtle text-xs" id="engine-status-semantic">OK</span>
+                        <span class="engine-name" data-router-vi="Ngữ nghĩa">Semantic</span>
+                        <span class="badge badge-subtle text-xs" id="engine-status-semantic">—</span>
                       </div>
                       <div class="engine-body">
-                        <strong class="engine-count font-mono" id="engine-count-semantic">0</strong>
-                        <small class="text-muted" id="engine-latency-semantic">0 ms</small>
+                        <strong class="engine-count font-mono" id="engine-count-semantic">—</strong>
+                        <small class="text-muted" id="engine-latency-semantic">—</small>
                       </div>
                     </div>
 
                     <div class="tempr-engine-card" id="engine-card-keyword">
                       <div class="engine-header">
-                        <span class="engine-name">2. Keyword (FTS)</span>
-                        <span class="badge badge-subtle text-xs" id="engine-status-keyword">OK</span>
+                        <span class="engine-name" data-router-vi="Từ khóa (FTS)">Keyword (FTS)</span>
+                        <span class="badge badge-subtle text-xs" id="engine-status-keyword">—</span>
                       </div>
                       <div class="engine-body">
-                        <strong class="engine-count font-mono" id="engine-count-keyword">0</strong>
-                        <small class="text-muted" id="engine-latency-keyword">0 ms</small>
+                        <strong class="engine-count font-mono" id="engine-count-keyword">—</strong>
+                        <small class="text-muted" id="engine-latency-keyword">—</small>
                       </div>
                     </div>
 
                     <div class="tempr-engine-card" id="engine-card-graph">
                       <div class="engine-header">
-                        <span class="engine-name">3. Graph (Alias)</span>
-                        <span class="badge badge-subtle text-xs" id="engine-status-graph">OK</span>
+                        <span class="engine-name" data-router-vi="Đồ thị (bí danh)">Graph (aliases)</span>
+                        <span class="badge badge-subtle text-xs" id="engine-status-graph">—</span>
                       </div>
                       <div class="engine-body">
-                        <strong class="engine-count font-mono" id="engine-count-graph">0</strong>
-                        <small class="text-muted" id="engine-latency-graph">0 ms</small>
+                        <strong class="engine-count font-mono" id="engine-count-graph">—</strong>
+                        <small class="text-muted" id="engine-latency-graph">—</small>
                       </div>
                     </div>
 
                     <div class="tempr-engine-card" id="engine-card-temporal">
                       <div class="engine-header">
-                        <span class="engine-name">4. Temporal</span>
-                        <span class="badge badge-subtle text-xs" id="engine-status-temporal">OK</span>
+                        <span class="engine-name" data-router-vi="Thời gian">Temporal</span>
+                        <span class="badge badge-subtle text-xs" id="engine-status-temporal">—</span>
                       </div>
                       <div class="engine-body">
-                        <strong class="engine-count font-mono" id="engine-count-temporal">0</strong>
-                        <small class="text-muted" id="engine-latency-temporal">0 ms</small>
+                        <strong class="engine-count font-mono" id="engine-count-temporal">—</strong>
+                        <small class="text-muted" id="engine-latency-temporal">—</small>
                       </div>
                     </div>
                   </div>
 
                   <div class="coverage-thresholds-bar flex-between-wrap mt-xs text-xs text-muted">
                     <div id="coverage-breakdown">
-                      Ứng viên chấm điểm: <strong class="font-mono" id="cov-scored">0</strong> / Thu thập: <strong class="font-mono" id="cov-retrieved">0</strong> / Tổng catalog: <strong class="font-mono" id="cov-total">0</strong>
+                      <span data-router-vi="Đã chấm">Scored</span> <strong class="font-mono" id="cov-scored">—</strong> ·
+                      <span data-router-vi="Đã truy xuất">Retrieved</span> <strong class="font-mono" id="cov-retrieved">—</strong> ·
+                      <span data-router-vi="Tổng trong catalog">Catalog total</span> <strong class="font-mono" id="cov-total">—</strong>
                     </div>
                     <div class="thresholds-badges flex-align-center gap-xs">
-                      <span class="badge badge-subtle">Ngưỡng Skill: &gt; 0.80</span>
-                      <span class="badge badge-subtle">Ngưỡng Prompt: &gt;= 0.75</span>
+                      <span class="badge badge-subtle" id="route-threshold-skill">—</span>
+                      <span class="badge badge-subtle" id="route-threshold-prompt">—</span>
                     </div>
                   </div>
+                  <div class="text-xs text-muted mt-xs" id="route-stage-details" hidden></div>
+                  <p class="text-xs mt-xs" id="route-partial-status" role="status" hidden></p>
                 </div>
 
                 <details id="route-choice-pool" class="mb-md" open hidden>
-                  <summary>Tài nguyên đủ điều kiện</summary>
+                  <summary data-router-vi="Menu do Hub trả về">Hub menu</summary>
                   <div id="route-choice-items" class="loaded-cards-grid mt-sm"></div>
                 </details>
 
                 <!-- 3. Selected & Loaded Resources -->
                 <div class="loaded-resources-section mb-md" id="loaded-resources-section">
                   <div class="panel-subheading flex-between mb-xs">
-                    <strong>Tài nguyên Được chọn &amp; Nạp Nội dung (Loaded Resources)</strong>
-                    <span class="badge badge-alive" id="loaded-count-badge">0 tài nguyên</span>
+                    <strong data-router-vi="Tài nguyên đã nạp">Loaded resources</strong>
+                    <span class="badge badge-alive" id="loaded-count-badge" role="status">—</span>
                   </div>
                   <div class="loaded-cards-grid" id="loaded-cards-grid">
                     <!-- Dynamically populated cards for loaded skills/prompts -->
@@ -679,16 +691,16 @@
                   <div class="card">
                     <div class="card-header flex-between-wrap">
                       <div>
-                        <h4 class="card-title">Bảng Xếp hạng Tất cả Ứng viên Đã Chấm điểm (Scored Candidates)</h4>
-                        <span class="text-xs text-muted" id="scored-candidates-subtitle">Hiển thị danh sách xếp hạng theo điểm số giảm dần</span>
+                        <h4 class="card-title" data-router-vi="Ứng viên đã chấm">Scored candidates</h4>
+                        <span class="text-xs text-muted" id="scored-candidates-subtitle" data-router-vi="Sắp xếp theo điểm giảm dần">Shown in descending score order</span>
                       </div>
                       <div class="table-filters flex-align-center gap-xs">
-                        <input type="search" id="route-scores-filter" class="form-control form-control-sm" placeholder="Lọc theo tên..." aria-label="Lọc ứng viên">
-                        <select id="route-scores-kind-filter" class="form-control form-control-sm" aria-label="Lọc loại">
-                          <option value="all">Tất cả loại</option>
-                          <option value="qualifying">Đạt ngưỡng (Nạp/Chọn)</option>
-                          <option value="skill">Chỉ Kỹ năng</option>
-                          <option value="prompt">Chỉ Lời nhắc</option>
+                        <input type="search" id="route-scores-filter" class="form-control form-control-sm" placeholder="Filter by name…" data-router-vi-placeholder="Lọc theo tên..." aria-label="Filter candidates by name" data-router-vi-aria-label="Lọc ứng viên">
+                        <select id="route-scores-kind-filter" class="form-control form-control-sm" aria-label="Filter candidates by status or type" data-router-vi-aria-label="Lọc ứng viên theo trạng thái hoặc loại">
+                          <option value="all" data-router-vi="Tất cả ứng viên">All candidates</option>
+                          <option value="qualifying" data-router-vi="Có trong menu">In the menu</option>
+                          <option value="skill" data-router-vi="Chỉ skill">Skills only</option>
+                          <option value="prompt" data-router-vi="Chỉ prompt">Prompts only</option>
                         </select>
                       </div>
                     </div>
@@ -697,16 +709,16 @@
                       <table class="data-table" id="route-scores-table">
                         <thead>
                           <tr>
-                            <th>Hạng</th>
-                            <th>Tên Tài nguyên</th>
-                            <th>Loại</th>
-                            <th>Điểm số &amp; Tiến trình</th>
-                            <th>Trạng thái Quyết định</th>
-                            <th>Hành động</th>
+                            <th data-router-vi="Hạng">Rank</th>
+                            <th data-router-vi="Tên tài nguyên">Resource name</th>
+                            <th data-router-vi="Loại">Type</th>
+                            <th data-router-vi="Điểm số">Score</th>
+                            <th data-router-vi="Trạng thái">Status</th>
+                            <th data-router-vi="Hành động">Actions</th>
                           </tr>
                         </thead>
                         <tbody id="route-scores-table-body">
-                          <tr><td colspan="6" class="text-center text-muted">Chưa có ứng viên được chấm điểm.</td></tr>
+                          <tr><td colspan="6" class="text-center text-muted" data-router-vi="Chưa có ứng viên được chấm điểm.">No candidates have been scored.</td></tr>
                         </tbody>
                       </table>
                     </div>
@@ -718,25 +730,25 @@
                   <div class="card">
                     <div class="card-header flex-between-wrap">
                       <div>
-                        <h4 class="card-title">Kết quả Tìm kiếm Ngữ nghĩa (BGE-M3 dGPU Vector Retrieval)</h4>
-                        <span class="text-xs text-muted" id="semantic-hits-subtitle">Truy vấn trực tiếp không tốn token LLM</span>
+                        <h4 class="card-title" data-router-vi="Kết quả tìm kiếm ngữ nghĩa">Semantic search results</h4>
+                        <span class="text-xs text-muted" id="semantic-hits-subtitle" data-router-vi="Truy xuất trực tiếp, không chấm bằng mô hình">Direct retrieval without model scoring</span>
                       </div>
-                      <span class="badge badge-subtle font-mono" id="semantic-hits-latency">0 ms</span>
+                      <span class="badge badge-subtle font-mono" id="semantic-hits-latency">—</span>
                     </div>
                     <div class="table-container">
                       <table class="data-table" id="semantic-hits-table">
                         <thead>
                           <tr>
-                            <th>Hạng</th>
-                            <th>Định danh Tài nguyên</th>
-                            <th>Loại</th>
-                            <th>Độ tương đồng (Score)</th>
-                            <th>Bằng chứng &amp; Metadata</th>
-                            <th>Hành động</th>
+                            <th data-router-vi="Hạng">Rank</th>
+                            <th data-router-vi="ID tài nguyên">Resource ID</th>
+                            <th data-router-vi="Loại">Type</th>
+                            <th data-router-vi="Độ tương đồng">Similarity</th>
+                            <th data-router-vi="Bằng chứng và metadata">Evidence and metadata</th>
+                            <th data-router-vi="Hành động">Actions</th>
                           </tr>
                         </thead>
                         <tbody id="semantic-hits-table-body">
-                          <tr><td colspan="6" class="text-center text-muted">Chưa có kết quả ngữ nghĩa.</td></tr>
+                          <tr><td colspan="6" class="text-center text-muted" data-router-vi="Chưa có kết quả ngữ nghĩa.">No semantic results yet.</td></tr>
                         </tbody>
                       </table>
                     </div>

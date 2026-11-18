@@ -4,6 +4,7 @@ from contextlib import closing
 import hashlib
 import http.client
 import json
+from math import isfinite
 import os
 from pathlib import Path
 import re
@@ -26,6 +27,14 @@ EMPTY_BODY_SHA = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b8
 HEALTH={'skill-hub':('127.0.0.1',8765,'/health')}
 _TASK_STATE_UNSET = object()
 ROUTE_TASK_TARGET=('127.0.0.1',8765,'/route_task')
+
+
+def _observed_number(value):
+    return value if type(value) is int or (type(value) is float and isfinite(value)) else None
+
+
+def _observed_flag(value):
+    return value if type(value) is bool else None
 
 _QUALITY_SCAN_SCHEMA_VERSION = 4
 _EXEC_SCAN_RE = re.compile(r'(?i)curl[^\n]{0,200}\|\s*(?:sh|bash)\b|powershell[^\n]{0,100}(?<!\w)-enc(?:odedcommand)?\b|ignore (?:all |previous )?instructions')
@@ -350,9 +359,9 @@ class Sources:
                     if isinstance(h,dict):
                         hits.append({
                             'id':self.clean(str(h.get('id',''))[:100]),
-                            'rank':int(h.get('rank',0)) if isinstance(h.get('rank'),(int,float)) else 0,
-                            'raw_score':float(h.get('raw_score',0.0)) if isinstance(h.get('raw_score'),(int,float)) else 0.0,
-                            'evidence':h.get('evidence') if isinstance(h.get('evidence'),dict) else {}
+                            'rank':_observed_number(h.get('rank')),
+                            'raw_score':_observed_number(h.get('raw_score')),
+                            'evidence':self._sanitize(h['evidence']) if isinstance(h.get('evidence'),dict) else {}
                         })
             backend_status = str(body.get('status', 'ok' if response.status==200 else 'degraded')).lower()
             if response.status != 200 and backend_status == 'ok':
@@ -362,9 +371,9 @@ class Sources:
                 'query':q_str,
                 'hits':hits,
                 'total':len(hits),
-                'elapsed_ms':body.get('elapsed_ms'),
-                'model':self.clean(str(body.get('model','bge-m3:latest'))),
-                'gpu_resident':bool(body.get('gpu_resident',False)),
+                'elapsed_ms':_observed_number(body.get('elapsed_ms')),
+                'model':self.clean(body['model']) if isinstance(body.get('model'), str) and body['model'].strip() else None,
+                'gpu_resident':_observed_flag(body.get('gpu_resident')),
                 'observed_at':observed_at,
                 'search_mode':'semantic',
                 'error':self.clean(str(body.get('error') or body.get('reason') or '')) if (body.get('error') or body.get('reason')) else None
@@ -380,6 +389,8 @@ class Sources:
             return {k: self._sanitize(v) for k, v in val.items()}
         elif isinstance(val, list):
             return [self._sanitize(v) for v in val]
+        elif type(val) is float:
+            return _observed_number(val)
         return val
 
     def route_task(self, state, retrieval_mode='tempr', include_graph=False, task_id=None, task_state=_TASK_STATE_UNSET):
@@ -498,16 +509,17 @@ class Sources:
             if ((isinstance(transport, dict) and transport.get('complete') is False)
                     or any(isinstance(raw_body.get(key), dict)
                            and raw_body[key].get('delivery') == 'DEFERRED_FULL_FETCH'
-                           for key in ('retrieval', 'loads', 'selected', 'coverage'))):
+                           for key in ('retrieval', 'loads', 'selected', 'coverage', 'choice_pool'))):
                 raise ValueError('ROUTE_RESPONSE_REQUIRES_FULL_FETCH: Dashboard requested full mode')
             sanitized_body = self._sanitize(raw_body)
             backend_status = sanitized_body.get('status')
-            if response.status == 200:
+            if response.status == 200 and not sanitized_body.get('error'):
                 calc_status = 'ok'
-            elif response.status == 503 and backend_status == 'busy':
+            elif response.status == 429 or (response.status == 503 and (
+                    backend_status == 'busy' or sanitized_body.get('error') == 'ROUTER_BUSY')):
                 calc_status = 'busy'
-            elif response.status in (400, 500, 502, 503):
-                calc_status = 'error' if response.status in (400, 500, 502) else 'unavailable'
+            elif response.status in (200, 400, 500, 502):
+                calc_status = 'error'
             else:
                 calc_status = 'unavailable'
 
@@ -539,251 +551,141 @@ class Sources:
                     if k not in loads or not isinstance(loads[k], list):
                         loads[k] = []
 
-            def _lookup_score(res_id_str, clean_name, kind):
-                if isinstance(raw_scores, dict):
-                    val = raw_scores.get(res_id_str)
-                    if val is None:
-                        val = raw_scores.get(clean_name)
-                    if val is None:
-                        val = raw_scores.get(f"{kind}:{clean_name}")
-                    if val is not None:
-                        try:
-                            return float(val)
-                        except (ValueError, TypeError):
-                            return None
-                elif isinstance(raw_scores, list):
-                    for s in raw_scores:
-                        if isinstance(s, dict):
-                            sid = str(s.get('id') or '')
-                            sname = str(s.get('name') or '')
-                            if sid in (res_id_str, clean_name, f"{kind}:{clean_name}") or sname in (res_id_str, clean_name):
-                                try:
-                                    return float(s.get('score'))
-                                except (ValueError, TypeError):
-                                    return None
+            def qualified(identifier, kind):
+                if not isinstance(identifier, str) or not identifier:
+                    return None
+                if identifier.startswith(('skill:', 'prompt:')):
+                    return identifier
+                return f'{kind}:{identifier}' if kind in ('skill', 'prompt') else identifier
+
+            def resource_id(item, kind=None):
+                if isinstance(item, str):
+                    return qualified(item, kind)
+                if isinstance(item, dict):
+                    return qualified(item.get('id') or item.get('name'),
+                                     item.get('kind') or item.get('type') or kind)
                 return None
 
-            def _normalize_load_item(item):
+            def identities(rows, kind=None):
+                return {identity for row in rows
+                        if (identity := resource_id(row, kind)) is not None} if isinstance(rows, list) else set()
+
+            if isinstance(raw_scores, dict):
+                rows = [{'id': identifier, 'score': score} for identifier, score in raw_scores.items()]
+            elif isinstance(raw_scores, list):
+                rows = [item for item in raw_scores if isinstance(item, dict)]
+            else:
+                rows = []
+            normalized_scores = []
+            for row in rows:
+                identifier = row.get('id') or row.get('name')
+                if not isinstance(identifier, str) or not identifier:
+                    continue
+                prefix, sep, name = identifier.partition(':')
+                kind = prefix if sep and prefix in ('skill', 'prompt') else (
+                    row.get('kind') or row.get('type') or 'skill')
+                if kind not in ('skill', 'prompt'):
+                    continue
+                normalized_scores.append({**row, 'id': qualified(identifier, kind), 'kind': kind,
+                    'name': row.get('name') or row.get('canonical_name') or (name if sep else identifier),
+                    'score': _observed_number(row.get('score'))})
+            score_by_id = {row['id']: row['score'] for row in normalized_scores}
+
+            def normalize_load_item(item, kind_hint):
                 if not isinstance(item, dict):
                     return item
-                res_id_str = str(item.get('id') or item.get('name') or '')
-                clean_name = item.get('name') or item.get('canonical_name') or (res_id_str.split(':', 1)[-1] if res_id_str else '')
-                kind = item.get('kind') or item.get('type') or ('prompt' if res_id_str.startswith('prompt:') else 'skill')
-                sha256 = item.get('sha256') or item.get('body_sha256') or item.get('served_content_sha256') or ''
-                score = item.get('score')
+                identifier = item.get('id') or item.get('name') or ''
+                if not isinstance(identifier, str):
+                    identifier = ''
+                prefix = identifier.partition(':')[0]
+                kind = prefix if identifier.startswith(('skill:', 'prompt:')) else (
+                    item.get('kind') or item.get('type') or kind_hint or 'skill')
+                name = item.get('name') or item.get('canonical_name') or identifier.split(':', 1)[-1]
+                sha = item.get('sha256') or item.get('body_sha256') or item.get('served_content_sha256') or ''
+                score = _observed_number(item.get('score'))
                 if score is None:
-                    score = _lookup_score(res_id_str, clean_name, kind)
+                    score = score_by_id.get(qualified(identifier or name, kind))
+                return {**item, 'id': identifier or qualified(name, kind), 'name': name,
+                        'kind': kind, 'sha256': sha, **({'score': score} if score is not None else {})}
+
+            for kind in ('skills', 'prompts', 'deferred', 'loaded'):
+                if isinstance(loads.get(kind), list):
+                    hint = {'skills': 'skill', 'prompts': 'prompt'}.get(kind)
+                    loads[kind] = [normalize_load_item(item, hint) for item in loads[kind]]
+
+            selected_list = sanitized_body.get('selected')
+            if not isinstance(selected_list, list):
+                selected_list = []
+            selected_ids = identities(selected_list)
+            loaded_ids = (identities(loads['skills'], 'skill') | identities(loads['prompts'], 'prompt')
+                          | identities(loads.get('loaded')))
+            deferred_ids = identities(loads['deferred'])
+            choice_pool = sanitized_body.get('choice_pool')
+            offered, excluded = set(), set()
+            if isinstance(choice_pool, dict):
+                offered = identities(choice_pool.get('skills'), 'skill') | identities(choice_pool.get('prompts'), 'prompt')
+                excluded = identities(choice_pool.get('excluded'))
+
+            thresholds = sanitized_body.get('thresholds')
+            if not isinstance(thresholds, dict):
+                thresholds = None
+            for row in normalized_scores:
+                identifier = row['id']
+                threshold = (thresholds or {}).get(row['kind'])
+                value = _observed_number(threshold.get('value')) if isinstance(threshold, dict) else None
+                operator = threshold.get('operator') if isinstance(threshold, dict) else None
+                if identifier in loaded_ids:
+                    status = 'loaded'
+                elif identifier in offered:
+                    status = 'offered'
+                elif identifier in deferred_ids:
+                    status = 'deferred'
+                elif identifier in excluded:
+                    status = 'excluded'
+                elif not isinstance(choice_pool, dict) and identifier in selected_ids:
+                    status = 'selected'
+                elif value is None or row['score'] is None or operator not in ('>', '>='):
+                    status = 'unknown'
+                elif row['score'] < value or (row['score'] == value and operator == '>'):
+                    status = 'below_threshold'
                 else:
-                    try:
-                        score = float(score)
-                    except (ValueError, TypeError):
-                        score = None
-
-                item['id'] = res_id_str or (f"{kind}:{clean_name}" if clean_name else '')
-                item['name'] = clean_name
-                item['kind'] = kind
-                item['sha256'] = sha256
-                if score is not None:
-                    item['score'] = score
-                return item
-
-            for k in ('skills', 'prompts', 'deferred'):
-                loads[k] = [_normalize_load_item(x) for x in loads[k]]
-            if isinstance(loads.get('loaded'), list):
-                loads['loaded'] = [_normalize_load_item(x) for x in loads['loaded']]
-
-            selected_list = sanitized_body.get('selected') or []
-            selected_ids = set()
-            for s in selected_list:
-                if isinstance(s, str):
-                    selected_ids.add(s)
-                    selected_ids.add(s.split(':', 1)[-1])
-                elif isinstance(s, dict):
-                    if s.get('id'):
-                        selected_ids.add(str(s['id']))
-                        selected_ids.add(str(s['id']).split(':', 1)[-1])
-                    if s.get('name'):
-                        selected_ids.add(str(s['name']))
-
-            loaded_ids = set()
-            for item in (loads.get('skills', []) + loads.get('prompts', []) + (loads.get('loaded') or [])):
-                if isinstance(item, dict):
-                    if item.get('id'):
-                        loaded_ids.add(str(item['id']))
-                        loaded_ids.add(str(item['id']).split(':', 1)[-1])
-                    if item.get('name'):
-                        loaded_ids.add(str(item['name']))
-                elif isinstance(item, str):
-                    loaded_ids.add(item)
-                    loaded_ids.add(item.split(':', 1)[-1])
-
-            deferred_ids = set()
-            for item in loads.get('deferred', []):
-                if isinstance(item, dict):
-                    if item.get('id'):
-                        deferred_ids.add(str(item['id']))
-                        deferred_ids.add(str(item['id']).split(':', 1)[-1])
-                    if item.get('name'):
-                        deferred_ids.add(str(item['name']))
-                elif isinstance(item, str):
-                    deferred_ids.add(item)
-                    deferred_ids.add(item.split(':', 1)[-1])
-
-            # Gap 1: scores Dict vs List Normalization
-            normalized_scores = []
-            if isinstance(raw_scores, dict):
-                for res_id, score_val in raw_scores.items():
-                    res_id_str = str(res_id)
-                    kind = 'prompt' if res_id_str.startswith('prompt:') else 'skill'
-                    clean_name = res_id_str.split(':', 1)[-1]
-                    try:
-                        score_num = float(score_val)
-                    except (ValueError, TypeError):
-                        score_num = 0.0
-
-                    if res_id_str in loaded_ids or clean_name in loaded_ids:
-                        status = 'loaded'
-                    elif res_id_str in deferred_ids or clean_name in deferred_ids:
-                        status = 'deferred'
-                    elif res_id_str in selected_ids or clean_name in selected_ids:
-                        status = 'selected'
-                    else:
-                        status = 'below_threshold'
-
-                    normalized_scores.append({
-                        'id': res_id_str,
-                        'name': clean_name,
-                        'kind': kind,
-                        'score': score_num,
-                        'status': status
-                    })
-            elif isinstance(raw_scores, list):
-                for item in raw_scores:
-                    if isinstance(item, dict):
-                        res_id_str = str(item.get('id') or item.get('name') or '')
-                        clean_name = item.get('name') or item.get('canonical_name') or (res_id_str.split(':', 1)[-1] if res_id_str else '')
-                        kind = item.get('kind') or item.get('type') or ('prompt' if res_id_str.startswith('prompt:') else 'skill')
-                        try:
-                            score_num = float(item.get('score', 0.0))
-                        except (ValueError, TypeError):
-                            score_num = 0.0
-
-                        status = item.get('status')
-                        if not status:
-                            if res_id_str in loaded_ids or clean_name in loaded_ids:
-                                status = 'loaded'
-                            elif res_id_str in deferred_ids or clean_name in deferred_ids:
-                                status = 'deferred'
-                            elif res_id_str in selected_ids or clean_name in selected_ids:
-                                status = 'selected'
-                            else:
-                                status = 'below_threshold'
-
-                        entry = dict(item)
-                        entry['id'] = res_id_str or (f"{kind}:{clean_name}" if clean_name else '')
-                        entry['name'] = clean_name
-                        entry['kind'] = kind
-                        entry['score'] = score_num
-                        entry['status'] = status
-                        normalized_scores.append(entry)
+                    status = 'not_offered'
+                row['status'] = status
 
             scores_total = len(normalized_scores)
             sorted_scores = sorted(
                 normalized_scores,
-                key=lambda x: (-float(x.get('score', 0.0)), str(x.get('id', '')))
+                key=lambda x: (x['score'] is None, -(x['score'] or 0), x['id'])
             )
             scores_truncated = scores_total > 100
             bounded_scores = sorted_scores[:100]
             for idx, s_item in enumerate(bounded_scores):
                 s_item['rank'] = idx + 1
 
-            # Gap 3: coverage field aliases
             coverage = sanitized_body.get('coverage')
             if isinstance(coverage, dict):
-                scored_val = coverage.get('scored_candidates') if 'scored_candidates' in coverage else coverage.get('scored', 0)
-                retrieved_val = coverage.get('retrieved_candidates') if 'retrieved_candidates' in coverage else coverage.get('retrieved', 0)
-                coverage['scored'] = scored_val
-                coverage['scored_candidates'] = scored_val
-                coverage['retrieved'] = retrieved_val
-                coverage['retrieved_candidates'] = retrieved_val
+                for name in ('scored', 'retrieved'):
+                    alias = f'{name}_candidates'
+                    observed = _observed_number(coverage.get(alias, coverage.get(name)))
+                    coverage[name] = coverage[alias] = observed
 
-            # Gap 4: retrieval.engines aliases & metadata synthesis
             retrieval = sanitized_body.get('retrieval')
-            if isinstance(retrieval, dict):
-                if isinstance(retrieval.get('engines'), dict):
-                    for eng_name, eng_info in retrieval['engines'].items():
-                        if isinstance(eng_info, dict):
-                            count_val = eng_info.get('count') if 'count' in eng_info else eng_info.get('hits', 0)
-                            hits_val = eng_info.get('hits') if 'hits' in eng_info else count_val
-                            try:
-                                c_int = int(count_val or 0)
-                            except (ValueError, TypeError):
-                                c_int = 0
-                            try:
-                                h_int = int(hits_val or 0)
-                            except (ValueError, TypeError):
-                                h_int = 0
-                            eng_info['count'] = c_int
-                            eng_info['hits'] = h_int
-                else:
-                    try:
-                        ret_count = int(retrieval.get('retrieved', 0) or 0)
-                    except (ValueError, TypeError):
-                        ret_count = 0
-                    retrieval['engines'] = {
-                        'keyword': {
-                            'status': 'OK',
-                            'hits': ret_count,
-                            'count': ret_count,
-                            'elapsed_ms': retrieval.get('fts_elapsed_ms', 0)
-                        },
-                        'semantic': {
-                            'status': 'SKIPPED',
-                            'hits': 0,
-                            'count': 0,
-                            'elapsed_ms': 0
-                        },
-                        'graph': {
-                            'status': 'SKIPPED',
-                            'hits': 0,
-                            'count': 0,
-                            'elapsed_ms': 0
-                        },
-                        'temporal': {
-                            'status': 'SKIPPED',
-                            'hits': 0,
-                            'count': 0,
-                            'elapsed_ms': 0
-                        }
-                    }
-            elif retrieval is None and calc_status == 'ok' and retrieval_mode == 'metadata':
-                retrieval = {
-                    'retrieval_mode': 'metadata',
-                    'engines': {
-                        'keyword': {'status': 'OK', 'hits': 0, 'count': 0, 'elapsed_ms': 0},
-                        'semantic': {'status': 'SKIPPED', 'hits': 0, 'count': 0, 'elapsed_ms': 0},
-                        'graph': {'status': 'SKIPPED', 'hits': 0, 'count': 0, 'elapsed_ms': 0},
-                        'temporal': {'status': 'SKIPPED', 'hits': 0, 'count': 0, 'elapsed_ms': 0}
-                    }
-                }
+            if isinstance(retrieval, dict) and isinstance(retrieval.get('engines'), dict):
+                for engine in retrieval['engines'].values():
+                    if isinstance(engine, dict):
+                        count = _observed_number(engine.get('count', engine.get('hits')))
+                        engine['count'] = count
+                        engine['hits'] = _observed_number(engine.get('hits', count))
+                        engine['elapsed_ms'] = _observed_number(engine.get('elapsed_ms'))
 
-            # Gap 5: provider enrichment
             provider = sanitized_body.get('provider')
-            if isinstance(provider, dict):
-                if not provider.get('model'):
-                    provider['model'] = 'convaiinnovations/laya-typed-decisions'
-                if provider.get('latency_ms') is None:
-                    reqs = provider.get('requests')
-                    if isinstance(reqs, list):
-                        try:
-                            comp_lat = sum(
-                                float(r.get('latency_ms') or 0.0)
-                                for r in reqs
-                                if isinstance(r, dict) and r.get('latency_ms') is not None
-                            )
-                            provider['latency_ms'] = round(comp_lat, 2)
-                        except (ValueError, TypeError):
-                            pass
+            if isinstance(provider, dict) and provider.get('latency_ms') is None:
+                requests = provider.get('requests')
+                if isinstance(requests, list) and requests:
+                    durations = [_observed_number(request.get('latency_ms'))
+                                 if isinstance(request, dict) else None for request in requests]
+                    if all(duration is not None for duration in durations):
+                        provider['latency_ms'] = round(sum(durations), 2)
 
             outcome_val = sanitized_body.get('outcome')
             action_val = sanitized_body.get('action')
@@ -804,10 +706,12 @@ class Sources:
                 'reason': sanitized_body.get('reason'),
                 'fallback': sanitized_body.get('fallback'),
                 'fallback_discovery': sanitized_body.get('fallback_discovery'),
-                'elapsed_ms': sanitized_body.get('elapsed_ms'),
+                'elapsed_ms': _observed_number(sanitized_body.get('elapsed_ms')),
                 'observed_at': observed_at,
-                'gpu_resident': sanitized_body.get('gpu_resident'),
-                'thresholds': sanitized_body.get('thresholds'),
+                'gpu_resident': _observed_flag(sanitized_body.get('gpu_resident')),
+                'thresholds': thresholds,
+                'partial': _observed_flag(sanitized_body.get('partial')),
+                'partial_reason': sanitized_body.get('partial_reason'),
                 'coverage': coverage,
                 'retrieval': retrieval,
                 'provider': provider,
@@ -821,8 +725,8 @@ class Sources:
                 'error': sanitized_body.get('error'),
                 'detail': sanitized_body.get('detail')
             }
-            if 'choice_pool' in sanitized_body:
-                data['choice_pool'] = sanitized_body['choice_pool']
+            if isinstance(choice_pool, dict):
+                data['choice_pool'] = choice_pool
             return data, sources
         except (OSError, ValueError) as exc:
             return {
@@ -855,8 +759,9 @@ class Sources:
             con.close()
     def load_resource_choice(self, resource_id, source_raw_sha256,
                              loaded_skill_ids_and_versions=None, bundle_sha256=None):
-        if not isinstance(resource_id, str) or not resource_id.startswith(('skill:', 'prompt:')):
+        if not isinstance(resource_id, str) or not resource_id.startswith(('skill:', 'prompt:')) or not resource_id.partition(':')[2]:
             raise ValueError('INVALID_CHOICE_IDENTITY: resource_id must be skill:<id> or prompt:<id>')
+        kind, _, name = resource_id.partition(':')
         if not isinstance(source_raw_sha256, str) or not re.fullmatch(r'[a-f0-9]{64}', source_raw_sha256):
             raise ValueError('INVALID_CHOICE_IDENTITY: source_raw_sha256 must be 64-hex SHA-256')
         if resource_id.startswith('skill:') and (not isinstance(bundle_sha256, str) or not re.fullmatch(r'[a-f0-9]{64}', bundle_sha256)):
@@ -900,13 +805,25 @@ class Sources:
                                    'params': {'name': 'load_resource_choice', 'arguments': args}}, sid=sid)
             if st != 200:
                 raise ValueError(f'MCP_CALL_FAILED: HTTP {st}')
-            content = ((rpc.get('result') or {}).get('content') or [])
+            result = rpc.get('result') if isinstance(rpc, dict) else None
+            if not isinstance(result, dict) or result.get('isError') is True:
+                raise ValueError('MCP_TOOL_ERROR')
+            content = result.get('content')
+            if not isinstance(content, list):
+                raise ValueError('MCP_EMPTY_CONTENT')
             payload_text = next((c.get('text') for c in content if isinstance(c, dict) and isinstance(c.get('text'), str)), None)
             if not payload_text:
                 raise ValueError('MCP_EMPTY_CONTENT')
             receipt = json.loads(payload_text)
-            if not isinstance(receipt, dict) or receipt.get('load_verified') is not True:
-                return self._sanitize(receipt)
+            if not isinstance(receipt, dict):
+                raise ValueError('MCP_INVALID_RECEIPT')
+            if receipt.get('load_verified') is not True:
+                return self._sanitize({key: receipt[key] for key in ('error', 'id', 'related_id')
+                                       if isinstance(receipt.get(key), str)})
+            if receipt.get('type') != kind or receipt.get('id') not in (name, resource_id):
+                raise ValueError('BODY_IDENTITY_MISMATCH')
+            if kind == 'skill' and receipt.get('bundle_sha256') != bundle_sha256:
+                raise ValueError('BODY_BUNDLE_MISMATCH')
             body = receipt.get('body')
             if not isinstance(body, str):
                 raise ValueError('MCP_EMPTY_CONTENT')
@@ -914,11 +831,12 @@ class Sources:
             actual_sha = hashlib.sha256(raw).hexdigest()
             if receipt.get('body_raw_sha256') != actual_sha or source_raw_sha256 != actual_sha:
                 raise ValueError('BODY_HASH_MISMATCH')
-            if receipt.get('body_bytes') != len(raw):
+            if type(receipt.get('body_bytes')) is not int or receipt['body_bytes'] != len(raw):
                 raise ValueError('BODY_SIZE_MISMATCH')
             sanitized = self._sanitize(receipt)
             if sanitized['body'] != body:
                 return {'error': 'BODY_REDACTED'}
+            sanitized['resource_id'] = self.clean(resource_id)
             sanitized['verified_in_client'] = True
             return sanitized
         finally:

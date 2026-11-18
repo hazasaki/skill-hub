@@ -1762,7 +1762,7 @@ kbd {
 
 .mode-select-wrap {
   flex: 2;
-  min-width: 280px;
+  min-width: min(280px, 100%);
 }
 
 .task-id-wrap {
@@ -1779,8 +1779,22 @@ kbd {
 
 .actions-wrap {
   display: flex;
+  flex-wrap: wrap;
+  max-width: 100%;
   gap: 8px;
   margin-left: auto;
+}
+
+#route-model-warning {
+  flex-basis: 100%;
+}
+
+#route-choice-items {
+  overflow-wrap: anywhere;
+}
+
+#choice-load-results {
+  white-space: pre-line;
 }
 
 /* Decision Summary Banner */
@@ -1886,11 +1900,13 @@ kbd {
 /* Loaded Resources Grid & Cards */
 .loaded-cards-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
   gap: 12px;
 }
 
 .loaded-resource-card {
+  min-width: 0;
+  overflow-wrap: anywhere;
   background: var(--panel);
   border: 1px solid var(--line-light);
   border-radius: var(--radius-inner);
