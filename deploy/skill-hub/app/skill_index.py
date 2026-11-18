@@ -605,7 +605,8 @@ def get_prompt(name: str, hub=None, *, require_indexed=False) -> Dict[str, Any]:
         raise KeyError(f'unknown prompt: {name}')
     if doc.is_symlink() or not doc.resolve().is_relative_to(root.resolve()):
         raise ValueError('prompt is a link or outside root')
-    text = doc.read_text(encoding='utf-8', errors='replace')
+    raw = doc.read_bytes()
+    text = raw.decode('utf-8')
     if expected and content_digest(text) != expected:
         raise ValueError(f'CONTENT_CHANGED: prompt differs from requested catalog version: {name}')
     meta, body, has_fm, parse_error = catalog_ingest.parse_frontmatter(text, default_name=doc.stem)
@@ -623,10 +624,10 @@ def get_prompt(name: str, hub=None, *, require_indexed=False) -> Dict[str, Any]:
         'kind': 'prompt',
         'description': meta.get('description', ''),
         'prompt_type': meta.get('prompt_type', ''),
-        'body': body,
+        'body': text,
         'content_sha256': content_digest(text),
         'body_sha256': content_digest(body),
-        'file_sha256': hashlib.sha256(doc.read_bytes()).hexdigest(),
+        'file_sha256': hashlib.sha256(raw).hexdigest(),
         'path': str(doc),
         'source_root': str(doc.resolve()),
         'hub_root': str(hub.resolve()),
@@ -835,7 +836,8 @@ def get(name: str, hub=None, materialize: bool = True, materialize_root: Optiona
         raise KeyError(f'unknown skill: {name} (missing SKILL.md)')
     if doc.is_symlink():
         raise ValueError('skill document is a link')
-    body_raw = doc.read_text(encoding='utf-8', errors='replace')
+    raw = doc.read_bytes()
+    body_raw = raw.decode('utf-8')
     actual_csha = content_digest(body_raw)
     actual_bsha = bundle_digest(root)
     if is_alias:
@@ -867,8 +869,9 @@ def get(name: str, hub=None, materialize: bool = True, materialize_root: Optiona
         'files': [],
         'hub_root': str(hub.resolve()),
         'source_root': str(root.resolve()),
-        'content_sha256': content_digest(body_raw),
-        'bundle_sha256': bundle_digest(root),
+        'content_sha256': actual_csha,
+        'file_sha256': hashlib.sha256(raw).hexdigest(),
+        'bundle_sha256': actual_bsha,
         'metadata': meta
     }
     if is_alias:

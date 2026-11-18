@@ -1,4 +1,4 @@
-"""Credential-free keyword MCP service over a local, read-only content directory."""
+"""Standalone MCP service over a local, read-only content directory."""
 from contextlib import closing
 import os
 from pathlib import Path
@@ -15,9 +15,13 @@ import skill_mcp
 
 def build_server(hub=None):
     hub = Path(hub or os.environ['SKILL_HUB_ROOT'])
+    model_enabled = os.environ.get('SKILL_HUB_ENABLE_MODEL_ROUTING') == '1'
+    key_file = os.environ.get('SKILL_HUB_KEY_PATH') if model_enabled else None
+    if model_enabled and (not key_file or not Path(key_file).is_file()):
+        raise ValueError('Model routing requires an explicit SKILL_HUB_KEY_PATH file.')
     index.build(hub)
     server = skill_mcp.build_server(
-        hub, os.environ.get('SKILL_HUB_MATERIALIZE_ROOT'), core_only=True)
+        hub, os.environ.get('SKILL_HUB_MATERIALIZE_ROOT'), core_only=True, model_key_path=Path(key_file) if model_enabled else None)
     server.settings.host = '0.0.0.0'
     server.settings.port = 8765
     server.settings.transport_security = TransportSecuritySettings(
@@ -34,14 +38,14 @@ def build_server(hub=None):
                 con.execute('SELECT rowid FROM fts LIMIT 1').fetchall()
                 con.execute('SELECT rowid FROM fts_prompts LIMIT 1').fetchall()
             return JSONResponse({
-                'status': 'ok', 'mode': 'keyword', 'catalog': index.stats(hub),
+                'status': 'ok', 'mode': 'provider-metadata' if model_enabled else 'keyword', 'catalog': index.stats(hub),
                 'capabilities': {'keyword_search': 'available', 'resource_load': 'available',
-                                 'model_routing': 'disabled', 'semantic_search': 'disabled',
+                                 'model_routing': 'configured' if model_enabled else 'disabled', 'semantic_search': 'disabled',
                                  'host_broker': 'disabled'},
                 'catalog_refresh': 'restart after editing content',
                 'execution': 'not evaluated; resources are instruction data'})
         except (sqlite3.Error, OSError):
-            return JSONResponse({'status': 'unavailable', 'mode': 'keyword',
+            return JSONResponse({'status': 'unavailable', 'mode': 'provider-metadata' if model_enabled else 'keyword',
                                  'error': 'catalog unreadable or invalid'}, status_code=503)
 
     return server

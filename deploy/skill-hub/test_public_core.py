@@ -87,5 +87,105 @@ class PublicCoreTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(response.json()['status'], 'unavailable')
 
 
+    async def test_provider_opt_in_exposes_structured_staged_choices_and_full_snapshot(self):
+        import hashlib
+        import sqlite3
+        import elephant_shadow
+        import skill_index
+
+        skill_path = self.hub / 'skills/review-checklist/SKILL.md'
+        original = skill_path.read_bytes()
+        closing = original.index(b'---', 3)
+        raw = original[:closing] + b'dependencies: [skill:setup]\n' + original[closing:] + ('Dữ liệu nguyên văn 🧪\r\n' * 12500).encode()
+        skill_path.write_bytes(raw)
+        alt = self.hub / 'skills' / 'alternate'
+        alt.mkdir()
+        (alt / 'SKILL.md').write_text(
+            '---\nname: alternate\ndescription: Competing review\n'
+            'conflicts_with: [skill:review-checklist]\n---\nReview differently.\n', encoding='utf-8')
+        setup = self.hub / 'skills/setup'
+        setup.mkdir()
+        (setup / 'SKILL.md').write_text(
+            '---\nname: setup\ndescription: Prepare review\n---\nPrepare the fixture.\n', encoding='utf-8')
+        key_path = self.root / 'fixture-key'
+        key_path.write_text('fixture-only', encoding='utf-8')
+        os.environ['SKILL_HUB_KEY_PATH'] = str(key_path)
+        # A key file alone does not enable outbound routing.
+        self.assertNotIn('route_task', {tool.name for tool in await serve_core.build_server(self.hub).list_tools()})
+        with patch.dict(os.environ, {'SKILL_HUB_ENABLE_MODEL_ROUTING': '1', 'SKILL_HUB_SCORE_MODE': 'staged'}):
+            self.server = serve_core.build_server(self.hub)
+            names = {tool.name for tool in await self.server.list_tools()}
+            self.assertIn('route_task', names)
+            self.assertIn('get_route_result', names)
+            self.assertNotIn('call_hub_tool', names)
+            with sqlite3.connect(os.environ['SKILL_HUB_INDEX_PATH']) as con:
+                con.execute('INSERT INTO aliases VALUES (?,?,?,?)',
+                            ('review-alias', 'review-checklist', 'skill', skill_index.content_digest(raw.decode())))
+            sent = []
+
+            def score(body, headers, timeout):
+                request = json.loads(body)
+                sent.append(request)
+                return {'answers': {key: {'type': 'noul', 'noul': .99 if key == 'skill:review-alias' else .9}
+                                    for key in request['questions']},
+                        'usage': {'input_tokens': 0, 'output_tokens': 0}}, 200
+
+            args = {'state': 'Review a fixture', 'task_state': {'current_step': 'review',
+                    'explicit_skill_ids': ['review-alias', 'alternate']}}
+            rejected = await self.call('route_task', {**args, 'retrieval_mode': 'tempr'})
+            self.assertEqual(rejected['error'], 'UNSUPPORTED_RETRIEVAL_MODE')
+            with patch.object(elephant_shadow, '_urllib_transport', side_effect=score):
+                result = await self.call('route_task', args)
+                self.assertEqual(result['outcome'], 'SELECTED', result)
+                self.assertEqual(result['task_state']['current_step'], 'review')
+                self.assertEqual(len(result['task_state_sha256']), 64)
+                retrieval = result['retrieval']
+                self.assertEqual(retrieval['scoring_stages'][0]['cap'], 24)
+                self.assertIn('skill:review-alias', retrieval['cards'])
+                self.assertFalse(result['cache']['exact_revision_available'])
+                choices = {entry['id']: entry for entry in result['choice_pool']['skills']}
+                self.assertEqual(choices['skill:alternate']['reason'], 'DECLARED_CONFLICT')
+                self.assertEqual(choices['skill:review-alias']['dependencies'], ['skill:setup'])
+                loaded_ids = [row['id'] for row in result['loads']['loaded']]
+                self.assertLess(loaded_ids.index('setup'), loaded_ids.index('review-alias'))
+                load = next(row for row in result['loads']['loaded'] if row['id'] == 'review-alias')
+                self.assertEqual(load['body'].encode(), raw)
+                self.assertEqual(load['body_raw_sha256'], hashlib.sha256(raw).hexdigest())
+                compact = await self.call('route_task', {**args, 'response_mode': 'compact'})
+                transport = compact['transport']
+                self.assertFalse(transport['complete'])
+                self.assertNotIn('download', transport)
+                segments, offset = [], 0
+                while offset is not None:
+                    page = await self.call('get_route_result', {'result_id': transport['fetch']['result_id'],
+                                              'offset': offset})
+                    segments.append(page['text'])
+                    offset = page['next_offset']
+                full = ''.join(segments)
+                self.assertEqual(hashlib.sha256(full.encode()).hexdigest(), transport['full_sha256'])
+                skill_path.write_bytes(raw + b'drift')
+                refused = await self.call('get_route_result', {'result_id': transport['fetch']['result_id']})
+                self.assertIn(refused['error'], ('CONTENT_CHANGED', 'RESOURCE_UNAVAILABLE'))
+            self.assertEqual(len(sent), 2)
+
+    async def test_no_key_returns_large_skill_and_prompt_bytes_exactly(self):
+        import hashlib
+
+        cases = [('get_skill', 'review-checklist', self.hub / 'skills/review-checklist/SKILL.md'),
+                 ('get_prompt', 'change-summary', self.hub / 'prompts/change-summary.md')]
+        for tool, name, file in cases:
+            raw = file.read_bytes().replace(b'\r\n', b'\n').replace(b'\n', b'\r\n')
+            raw += ('Dữ liệu nguyên văn 🧪\r\n' * 12500).encode()
+            file.write_bytes(raw)
+            self.server = serve_core.build_server(self.hub)
+            item = await self.call(tool, {'name': name})
+            self.assertEqual(item['body'].encode(), raw)
+            self.assertFalse(item['identity']['body_truncated'])
+            self.assertEqual(item['file_sha256'], hashlib.sha256(raw).hexdigest())
+            page = await self.call(tool, {'name': name, 'offset': 7, 'max_chars': 11})
+            self.assertEqual(page['body'], raw.decode()[7:18])
+            self.assertTrue(page['identity']['body_truncated'])
+
+
 if __name__ == '__main__':
     unittest.main()
