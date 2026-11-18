@@ -298,8 +298,12 @@ class Dashboard:
             if h.get('status') == 'observed' and h.get('http_status') == 200:
                 fields = h.get('fields', {})
                 warmup = fields.get('warmup', {})
-                if warmup.get('ok'):
-                    route_status = True
+                route_status = fields.get('model_routing') == 'configured' or bool(warmup.get('ok'))
+                if fields.get('model_routing') == 'configured':
+                    route_reason = 'Interactive route_task tester connected to the configured metadata router'
+                elif fields.get('model_routing') == 'disabled':
+                    route_reason = 'Model routing is disabled in this Skill Hub profile'
+                elif route_status:
                     route_reason = 'Interactive route_task tester connected to live Skill Hub router (TEMPR + Elephant decision model, explicit operator trigger)'
         except Exception:
             route_reason = 'Skill Hub router backend unavailable or warming up on port 8765'
@@ -466,6 +470,19 @@ class Dashboard:
             'limits': limits
         }
 
+    def load_resource_choice(self, payload):
+        if not isinstance(payload, dict):
+            raise ValueError('object required')
+        data = self.sources.load_resource_choice(
+            resource_id=payload.get('resource_id'),
+            source_raw_sha256=payload.get('source_raw_sha256'),
+            loaded_skill_ids_and_versions=payload.get('loaded_skill_ids_and_versions'),
+            bundle_sha256=payload.get('bundle_sha256'),
+        )
+        ok = isinstance(data, dict) and not data.get('error') and data.get('load_verified') is True
+        return {'schema': 'skill-hub.dashboard.v1', 'observed_at': now(),
+                'status': 'ok' if ok else 'error', 'data': data}
+
     def target(self, kind, name):
         if kind not in ('skill','prompt') or not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_.-]{0,99}',name): raise ValueError('invalid resource identity')
         path=self.state/'quarantine'/kind/name/'current.json'
@@ -612,6 +629,14 @@ class Handler(BaseHTTPRequestHandler):
                 if 'INVALID_TASK_STATE' in (data.get('reason'), data.get('error')):
                     status_code = 400
                 return self.reply(status_code, envelope)
+            if self.path == '/api/v1/load_resource_choice':
+                body = json.loads(self.rfile.read(length))
+                if not isinstance(body, dict): raise ValueError('object required')
+                try:
+                    envelope = self.server.app.load_resource_choice(body)
+                except ValueError as ve:
+                    return self.reply(400, {'error': str(ve)})
+                return self.reply(200 if envelope.get('status') == 'ok' else 400, envelope)
             prefix='/api/v1/operations/'
             if not self.path.startswith(prefix): return self.reply(404,{'error':'not found'})
             body=json.loads(self.rfile.read(length))

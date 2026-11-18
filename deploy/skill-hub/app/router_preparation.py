@@ -1,16 +1,13 @@
 """Bounded candidate preparation and score-only cache; neither grants load permission."""
 from __future__ import annotations
 
-from collections import Counter, OrderedDict
-import hashlib
-import math
-import re
+from collections import OrderedDict
 import sqlite3
 import threading
 import time
 
 from metadata_hits import query_hits
-from shortlist_runtime import digest, query_terms, index_identity
+from shortlist_runtime import query_terms, index_identity
 
 CANDIDATE_LIMIT = 250
 CACHE_TTL_SECONDS = 300.0
@@ -123,29 +120,17 @@ def prepare(entries, text, limit=CANDIDATE_LIMIT, *, fts_ranks=None, tempr=None,
         return _prepare_fused(entries, text, limit, fts_ranks=fts_ranks,
                               config=tempr if isinstance(tempr, dict) else None,
                               deadline=deadline, group_map=group_map, engines=engines)
+    from rust_routing import Operation, decision
     terms = set(query_terms(text))
-    tokens = {}
-    names = {}
-    frequencies = Counter()
-    for entry, (name, hits) in zip(entries, query_hits(entries, terms)):
-        tokens[entry['id']], names[entry['id']] = hits, name
-        frequencies.update(hits)
-    weights = {term: math.log(1 + len(entries) / (1 + count)) for term, count in frequencies.items()}
-    def rank(entry):
-        hits = tokens[entry['id']]
-        relevance = math.fsum(weights[t] * (4 if t in names[entry['id']] else 1) for t in hits)
-        # Stable query-dependent tie breaking avoids permanent alphabetic starvation.
-        tie = hashlib.sha256((text + '\0' + entry['id']).encode()).hexdigest()
-        if fts_ranks is not None:
-            return (fts_ranks.get(entry['id'], len(entries) + 1), -relevance, tie)
-        return (-relevance, tie)
-    ranked = {kind: sorted((e for e in entries if e['type'] == kind), key=rank)
-              for kind in ('skill', 'prompt')}
-    cap = min(limit, len(entries))
-    prompt_count = min(len(ranked['prompt']), max(1, cap // 5)) if cap else 0
-    skill_count = min(len(ranked['skill']), cap - prompt_count)
-    prompt_count = min(len(ranked['prompt']), cap - skill_count)
-    chosen = ranked['skill'][:skill_count] + ranked['prompt'][:prompt_count]
+    hits = query_hits(entries, terms)
+    by_id = {entry['id']: entry for entry in entries}
+    ids, skill_count, prompt_count = decision(Operation.METADATA_RANK, {
+        'entries': [{'id': entry['id'], 'kind': entry['type'],
+                     'name_hits': sorted(name_hits), 'hits': sorted(matches)}
+                    for entry, (name_hits, matches) in zip(entries, hits)],
+        'text': text, 'limit': limit, 'fts': fts_ranks,
+    })
+    chosen = [by_id[identifier] for identifier in ids]
     method = 'fts_bm25_metadata_fallback_v1' if fts_ranks is not None else 'metadata_idf_name_weighted_v1'
     return chosen, {'method': method, 'limit': limit,
                     'retrieved': len(chosen), 'excluded': len(entries) - len(chosen),
@@ -233,78 +218,29 @@ def _prepare_fused(entries, text, limit, *, fts_ranks, config, deadline, group_m
     return fallback, evidence
 
 
-def dynamic_scoring_pool(entries, query, engine_ranks, retrieval, explicit_ids):
-    """Size the single scoring pass using only request and retrieval evidence."""
-    task_state = query.get('task_state') or {}
-    terms = query_terms(' '.join((task_state.get('state') or query['text'],
-                                 task_state.get('current_step') or '',
-                                 task_state.get('desired_output') or '')), prefer_ascii=False)
-    ordered = interleave(entries)
-    corroborated = [index for index, entry in enumerate(ordered, 1)
-                    if sum(rank <= 20 for rank in engine_ranks.get(entry['id'], {}).values()) >= 2]
-    # shortcut: fixed rank and breadth cutoffs, revisit after a frozen recall/latency comparison.
-    if len(entries) <= 50:
-        target, reason = 50, 'SMALL_POOL'
-    elif (len(terms) < 2 or not corroborated or retrieval.get('degraded')
-          or retrieval.get('fallback', {}).get('used')):
-        target, reason = CANDIDATE_LIMIT, 'INSUFFICIENT_RETRIEVAL_EVIDENCE'
-    elif corroborated[-1] <= 50 and len(terms) <= 8 and len(task_state.get('artifact_types') or []) <= 1:
-        target, reason = 50, 'FOCUSED_CORROBORATION'
-    elif corroborated[-1] <= 100:
-        target, reason = 100, 'BROAD_OR_DISPERSED_CORROBORATION'
-    else:
-        target, reason = CANDIDATE_LIMIT, 'DEEP_CORROBORATION'
-    limit = min(CANDIDATE_LIMIT, max(target, len(explicit_ids)))
-    # Reserve slots for explicit requests before taking the ranked prefix, keeping scoring order.
-    priority = sorted(ordered, key=lambda entry: entry['id'] not in explicit_ids)
-    admitted = {entry['id'] for entry in priority[:limit]}
-    return [entry for entry in ordered if entry['id'] in admitted], {
-        'mode': 'dynamic', 'reason': reason, 'target': target, 'limit': limit,
-        'candidate_pool': len(entries), 'admitted': len(admitted),
-        'query_terms': len(terms), 'corroborated': len(corroborated),
-        'last_corroborated_position': corroborated[-1] if corroborated else None,
-        'explicit_candidates': len(explicit_ids),
-    }
-
-
 def interleave(entries):
-    """Alternate resource kinds, so the first batch includes prompts when present."""
-    skills = [e for e in entries if e['type'] == 'skill']
-    prompts = [e for e in entries if e['type'] == 'prompt']
-    output = []
-    for i in range(max(len(skills), len(prompts))):
-        if i < len(prompts):
-            output.append(prompts[i])
-        if i < len(skills):
-            output.append(skills[i])
-    return output
+    from rust_routing import Operation, decision
+    by_id = {entry['id']: entry for entry in entries}
+    ids = decision(Operation.INTERLEAVE, [(entry['id'], entry['type']) for entry in entries])
+    return [by_id[identifier] for identifier in ids]
 
 
 def coalesce(entries, *, exact_cards=False, explicit=()):
-    """Reuse scores only for indexed identical content and complete bundle identities.
-
-    Aliases keep their own ids and load permissions. Missing bundle identity means no
-    equivalence for a skill, even when its SKILL.md happens to be byte-identical.
-    """
-    representatives, aliases, seen = [], {}, {}
+    """Collapse only pinned identities. Aliases retain independent load permissions."""
+    from rust_routing import Operation, decision
+    fields = ('id', 'type', 'content_sha256', 'bundle_sha256', 'risk', 'description',
+              'tags', 'purpose_excerpt', 'state')
+    by_id = {entry['id']: entry for entry in entries}
+    rows = []
     for entry in entries:
-        content, bundle = entry.get('content_sha256'), entry.get('bundle_sha256')
-        valid = lambda value: isinstance(value, str) and bool(re.fullmatch('[0-9a-f]{64}', value))
-        equivalent = valid(content) and (entry['type'] == 'prompt' or valid(bundle))
-        identity = (entry['type'], content, bundle, entry.get('risk'),
-                    entry.get('description'), entry.get('tags'), entry.get('purpose_excerpt'),
-                    entry.get('state')) if equivalent else None
-        if exact_cards and identity is not None:
+        row = {key: entry.get(key) for key in fields}
+        if exact_cards:
             card = entry.get('resource_card') or {}
-            raw, card_hash = card.get('source_raw_sha256'), card.get('card_sha256')
-            identity = (identity, raw, card_hash) if valid(raw) and valid(card_hash) and entry['id'] not in explicit else None
-        if identity is not None and identity in seen:
-            aliases.setdefault(seen[identity], []).append(entry)
-        else:
-            representatives.append(entry)
-            if identity is not None:
-                seen[identity] = entry['id']
-    return representatives, aliases
+            row['resource_card'] = {key: card.get(key) for key in ('source_raw_sha256', 'card_sha256')}
+        rows.append(row)
+    ids, aliases = decision(Operation.COALESCE, {'entries': rows, 'exact': exact_cards, 'explicit': sorted(explicit)})
+    return [by_id[identifier] for identifier in ids], {
+        identifier: [by_id[alias] for alias in group] for identifier, group in aliases.items()}
 
 
 def cache_key(text, catalog, entries, model, endpoint, *, retriever=None):
@@ -313,6 +249,7 @@ def cache_key(text, catalog, entries, model, endpoint, *, retriever=None):
     Without it, the same task text against the same catalog could reuse scores computed for a
     candidate list built from different projection revisions.
     """
+    from staged_scoring import digest
     return digest({'schema': 'route-scores.v2', 'question_version': SCORING_QUESTION_VERSION,
                    'task': text.replace('\r\n', '\n').replace('\r', '\n'),
                    'catalog': catalog, 'entries': entries, 'model': model, 'endpoint': endpoint,

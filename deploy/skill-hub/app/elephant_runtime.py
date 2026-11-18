@@ -868,7 +868,7 @@ def load_verified(catalog_module, hub, selected, *, policy_gate=None,
     checks.append('CONTENT_STABLE')
     route = 'MCP_DISPATCHED' if loader is not None else 'IN_PROCESS'
     return {'schema_version': SCHEMA_VERSION, 'type': kind, 'id': name, 'route': route,
-            'body': body, 'bundle_sha256': bundle,
+            'body': body, 'bundle_sha256': bundle, 'version': metadata.get('version'),
             **({'conflict_identity': conflict_identity} if check_conflict_identity else {}),
             'pinned_content_sha256': selected.get('content_sha256') or served,
             'served_content_sha256': served, 'content_matches_pinned': True,
@@ -888,75 +888,16 @@ def load_approved(catalog_module, hub, selected, approvals=None, **kwargs):
     return load_verified(catalog_module, hub, selected, **kwargs)
 
 
+def _equivalence_fields(row):
+    fields = ('id', 'type', 'content_sha256', 'bundle_sha256', 'canonical_id', 'mirror_of',
+              'equivalent_ids', 'equivalence_audited', 'authorization_source')
+    return {'id': row['id'], 'full_id': row.get('full_id'),
+            'entry': {key: row['entry'].get(key) for key in fields}}
+
+
 def are_candidates_equivalent(x, y):
-    """Check whether two candidate entries represent the exact same underlying resource.
-
-    Equivalence requires verified metadata linkage or full content/bundle identity.
-    A shared base name or common prefix is NOT evidence of identical capability.
-    Unknown bundle must NOT prove skill equivalence, as bundles may have distinct scripts.
-    """
-    entry_x = x['entry']
-    entry_y = y['entry']
-    kind_x = entry_x.get('type')
-    kind_y = entry_y.get('type')
-    if kind_x != kind_y:
-        return False
-    kind = kind_x
-
-    valid_sha = lambda s: isinstance(s, str) and bool(re.fullmatch(r'[0-9a-fA-F]{64}', s))
-    sha_x = entry_x.get('content_sha256')
-    sha_y = entry_y.get('content_sha256')
-    b_x = entry_x.get('bundle_sha256')
-    b_y = entry_y.get('bundle_sha256')
-
-    # 1. Full content and bundle identity
-    # For skills, require BOTH nonempty matching content_sha256 AND matching bundle_sha256.
-    # Unknown bundle must NOT prove skill equivalence.
-    if valid_sha(sha_x) and valid_sha(sha_y) and sha_x.lower() == sha_y.lower():
-        if kind == 'skill':
-            if valid_sha(b_x) and valid_sha(b_y) and b_x.lower() == b_y.lower():
-                return True
-        elif kind == 'prompt':
-            # Prompt identity is text-only by type
-            return True
-
-    # 2. Audited metadata equivalence
-    # canonical_id/mirror_of/equivalent_ids must use actually audited equivalence relation
-    # or matching bundle, not untrusted arbitrary strings.
-    x_id = x['id']
-    y_id = y['id']
-    x_full = x.get('full_id') or entry_x.get('id', '')
-    y_full = y.get('full_id') or entry_y.get('id', '')
-
-    canon_x = entry_x.get('canonical_id') or entry_x.get('mirror_of')
-    canon_y = entry_y.get('canonical_id') or entry_y.get('mirror_of')
-    has_meta_link = False
-    if canon_x and canon_x in (y_id, y_full):
-        has_meta_link = True
-    elif canon_y and canon_y in (x_id, x_full):
-        has_meta_link = True
-    elif canon_x and canon_y and canon_x == canon_y:
-        has_meta_link = True
-    else:
-        eq_x = entry_x.get('equivalent_ids') or []
-        eq_y = entry_y.get('equivalent_ids') or []
-        if y_id in eq_x or y_full in eq_x or x_id in eq_y or x_full in eq_y:
-            has_meta_link = True
-
-    if has_meta_link:
-        audited_x = entry_x.get('equivalence_audited') is True or entry_x.get('authorization_source') == 'host_policy_only'
-        audited_y = entry_y.get('equivalence_audited') is True or entry_y.get('authorization_source') == 'host_policy_only'
-        if kind == 'skill':
-            # Must have matching bundle or audited equivalence relation
-            if valid_sha(b_x) and valid_sha(b_y) and b_x.lower() == b_y.lower():
-                return True
-            if audited_x and audited_y and valid_sha(sha_x) and valid_sha(sha_y) and sha_x.lower() == sha_y.lower():
-                return True
-        elif kind == 'prompt':
-            if (valid_sha(sha_x) and valid_sha(sha_y) and sha_x.lower() == sha_y.lower()) or (audited_x and audited_y):
-                return True
-
-    return False
+    from rust_routing import Operation, decision
+    return decision(Operation.EQUIVALENCE, {'left': _equivalence_fields(x), 'right': _equivalence_fields(y)})
 
 
 def differentiate_qualifying(selected_list, by_id, scores, query_text, language='unknown'):
@@ -1000,58 +941,21 @@ def differentiate_qualifying(selected_list, by_id, scores, query_text, language=
             'is_canonical': not bool(vendor),
         })
 
-    # Group into equivalence clusters:
-    # Candidates are only equivalent if they share verified metadata linkage
-    # or full bundle+content identity. Never group by base_name alone.
-    clusters = []
-    for a in annotated:
-        matched = None
-        for cl in clusters:
-            if any(are_candidates_equivalent(a, m) for m in cl):
-                matched = cl
-                break
-        if matched is not None:
-            matched.append(a)
-        else:
-            clusters.append([a])
+    from rust_routing import Operation, decision
+    clusters = decision(Operation.QUALIFICATION_CLUSTERS, [
+        {**_equivalence_fields(member), 'score': round(member['score'], 4),
+         'specificity': member['specificity'], 'canonical': member['is_canonical'],
+         'compatible': shortlist.is_language_compatible(member['res_lang'], language)}
+        for member in annotated
+    ])
 
     differentiated = []
     diff_ledger = []
     excl_ledger = []
 
-    for members in clusters:
-        # If cluster has only 1 member, it represents a unique capability:
-        # A localized specialist with unique content must remain admitted as PRIMARY.
-        if len(members) == 1:
-            primary = members[0]
-            primary_record = {
-                'type': primary['kind'],
-                'id': primary['id'],
-                'score': primary['score'],
-                'canonical_name': primary['base_name'],
-                'qualification': 'PRIMARY',
-                'primary_id': primary['id'],
-                'specificity': primary['specificity'],
-                'entry': primary['entry'],
-            }
-            differentiated.append(primary_record)
-            diff_ledger.append({
-                'id': primary['id'],
-                'canonical_name': primary['base_name'],
-                'role': 'PRIMARY',
-                'primary_id': primary['id'],
-                'reason': 'PRIMARY_CAPABILITY_SPECIALIST'
-            })
-            continue
-
-        # Multiple equivalent members in this cluster (clones / mirrors):
-        # Prefer language-compatible members first if available
-        compat_members = [m for m in members if shortlist.is_language_compatible(m['res_lang'], language)]
-        active_pool = compat_members if compat_members else members
-
-        # Sort: highest model score first, then specificity, canonical un-suffixed breaks ties
-        active_pool.sort(key=lambda m: (round(m['score'], 4), m['specificity'], m['is_canonical']), reverse=True)
-        primary = active_pool[0]
+    for primary_index, members in clusters:
+        primary = annotated[primary_index]
+        members = [annotated[index] for index in members]
 
         primary_record = {
             'type': primary['kind'],
@@ -1119,7 +1023,7 @@ def run_multi(*, catalog_module, hub, query, approvals=None, transport=None, key
               endpoint=contract.ENDPOINT, model=contract.MODEL, language='unknown',
               scenario_id=None, monotonic=None, sleep=None, use_cache=True,
               tempr=None, retrieval_deadline=None, overall_deadline=None,
-              byte_budget=LOAD_BYTE_BUDGET, scoring_mode='baseline'):
+              byte_budget=LOAD_BYTE_BUDGET, scoring_mode='baseline', adaptive_coefficients=None):
     """Prepare candidates from the whole visible catalog, score the prepared set, then load every resource that clears its bar.
 
     Coverage is reported, never implied: `coverage.scored` of `coverage.catalog_total`, the
@@ -1132,6 +1036,13 @@ def run_multi(*, catalog_module, hub, query, approvals=None, transport=None, key
     if scoring_mode not in ('dynamic', 'baseline', 'staged'):
         raise ChainError('unknown scoring mode')
     staged = scoring_mode == 'staged'
+    adaptive = scoring_mode == 'dynamic'
+    if adaptive:
+        from math import isfinite
+        if (adaptive_coefficients is None or len(adaptive_coefficients) != 2
+                or not all(isfinite(value) for value in adaptive_coefficients)
+                or adaptive_coefficients[0] < 0 or adaptive_coefficients[1] <= 0):
+            raise ChainError('dynamic routing requires finite k >= 0 and h > 0')
     t_overall_start = time.perf_counter()
     clock = monotonic or time.monotonic
     sleeper = sleep or time.sleep
@@ -1139,6 +1050,13 @@ def run_multi(*, catalog_module, hub, query, approvals=None, transport=None, key
     overall_budget = overall_deadline if overall_deadline is not None else OVERALL_DEADLINE_SECONDS
     overall_deadline_at = route_started + overall_budget
     text = query['text']
+    from task_state import routing_hints
+    task = query.get('task_state') or {}
+    kinds, inferred_language, required = routing_hints(task)
+    from rust_routing import Operation, decision
+    no_resource = adaptive and not (kinds or required or task.get('explicit_skill_ids')) and decision(
+        Operation.NO_RESOURCE_CONSTRAINT, task.get('constraints') or [])
+    choice_language = (inferred_language or language) if language == 'unknown' else language
     retrieval_wall = route_started
     requested_retrieval = (
         retrieval_deadline if retrieval_deadline is not None
@@ -1151,18 +1069,36 @@ def run_multi(*, catalog_module, hub, query, approvals=None, transport=None, key
         catalog_module, hub, description_chars=description_chars)
     visible = visibility['candidates'] if visibility['outcome'] == 'CANDIDATES' else []
     visibility_elapsed_ms = (clock() - retrieval_wall) * 1000
-    fts_start = clock()
-    fts_ranks, fts_status = preparation.indexed_ranks(
-        catalog_module, hub, text, deadline=retrieval_deadline_at)
-    fts_elapsed_ms = round((clock() - fts_start) * 1000.0, 2)
-    fusion_deadline = retrieval_deadline_at
-    entries, retrieval = preparation.prepare(
-        visible, text, fts_ranks=fts_ranks if fts_status['status'] == 'OK' else None,
-        tempr=tempr,
-        deadline=fusion_deadline)
-    engine_ranks = retrieval.pop('engine_ranks', {})
-    if staged:
-        retrieval['engine_ranks'] = engine_ranks
+    if no_resource:
+        entries, retrieval = [], {'method': 'explicit_no_resources', 'retrieved': 0}
+        expansion, fts_status, fts_elapsed_ms = {'status': 'NOT_REQUESTED'}, {'status': 'SKIPPED'}, 0.0
+    else:
+        fts_start = clock()
+        fts_ranks, fts_status = preparation.indexed_ranks(
+            catalog_module, hub, text, deadline=retrieval_deadline_at)
+        expansion = {'status': 'NOT_REQUESTED'}
+        context_terms = decision(Operation.EXPANSION_QUERY, {name: task.get(name) for name in (
+            'current_step', 'desired_output', 'required_capabilities', 'artifact_types')})
+        if context_terms and fts_status['status'] == 'OK' and clock() < retrieval_deadline_at:
+            context_ranks, context_status = preparation.indexed_ranks(
+                catalog_module, hub, context_terms, limit=100, per_term_limit=16,
+                deadline=min(retrieval_deadline_at, clock() + .25))
+            expansion['status'] = context_status['status']
+            if context_status['status'] == 'OK':
+                # One bounded keyword expansion. Semantic, graph and scoring keep the original state.
+                fts_ranks, expansion['added_keyword_hits'] = decision(
+                    Operation.EXPAND, {'fts': fts_ranks, 'extra': context_ranks})
+        fts_elapsed_ms = round((clock() - fts_start) * 1000.0, 2)
+        fusion_deadline = retrieval_deadline_at
+        entries, retrieval = preparation.prepare(
+            visible, text, limit=300 if adaptive else preparation.CANDIDATE_LIMIT,
+            fts_ranks=fts_ranks if fts_status['status'] == 'OK' else None,
+            tempr=tempr,
+            deadline=fusion_deadline)
+    retrieval['decision_backend'] = 'rust_v1'
+    retrieval['prepared_ids'] = [entry['id'] for entry in entries]
+    retrieval['context_keyword_expansion'] = expansion
+    retrieval['requested_resource_types'] = sorted(kinds)
     retrieval['visibility_elapsed_ms'] = visibility_elapsed_ms
     retrieval['visibility_deadline_enforced'] = False
     retrieval['index_search'] = fts_status
@@ -1215,64 +1151,93 @@ def run_multi(*, catalog_module, hub, query, approvals=None, transport=None, key
         if not any(e['id'] == candidate['id'] for e in entries):
             entries.append(candidate)
     explicit_ids = {row['resolved_id'] for row in explicit if 'resolved_id' in row}
-    if scoring_mode == 'dynamic':
-        entries, retrieval['scoring_budget'] = preparation.dynamic_scoring_pool(
-            entries, query, engine_ranks, retrieval, explicit_ids)
-        admitted = {entry['id'] for entry in entries}
-        for row in explicit:
-            if 'resolved_id' in row and row['resolved_id'] not in admitted:
-                row['outcome'] = 'SCORING_BUDGET_EXCLUDED'
-        if len(entries) < retrieval['scoring_budget']['candidate_pool']:
-            retrieval['model_saw_full_catalog'] = False
+    if adaptive:
+        # Preserve explicit requests under the same distinct-candidate budget.
+        entries = sorted(entries, key=lambda entry: entry['id'] not in explicit_ids)[:300]
+        retrieval['scoring_budget'] = {'mode': 'dynamic', 'candidate_pool_limit': 300,
+                                       'round_caps': [24, 48, 96]}
     elif not staged:
         retrieval['scoring_budget'] = {
             'mode': 'baseline', 'reason': 'LEGACY_PREPARED_POOL',
             'candidate_pool': len(entries), 'admitted': len(entries),
         }
     retrieval['explicit_resolution'] = explicit
-    card_started = time.perf_counter()
-    cards_timed_out = False
-    if catalog_module is not None and hasattr(catalog_module, 'get'):
-        from resource_card import build_card, render_card
+    from resource_card import build_card, render_card
+    def read_card(entry):
+        try:
+            source = (catalog_module.get(entry['resource_id'], hub, materialize=False)
+                      if entry['type'] == 'skill' else catalog_module.get_prompt(entry['resource_id'], hub))
+            if (source['content_sha256'] != entry.get('content_sha256')
+                    or ((staged or adaptive) and entry['type'] == 'skill' and entry.get('bundle_sha256')
+                        and source.get('bundle_sha256') != entry['bundle_sha256'])):
+                raise ValueError('CARD_SOURCE_CHANGED')
+            card = build_card(source)
+            return {**entry, 'resource_card': card, 'choice_metadata': source.get('metadata') or {},
+                    'purpose_excerpt': entry.get('purpose_excerpt', '') + '\nAuthored routing card: ' + render_card(card)}, None
+        except (KeyError, ValueError, OSError) as error:
+            return entry, {'id': entry['id'], 'error': type(error).__name__}
+    retrieval['cards'] = {}
+    card_coverage = retrieval['card_coverage'] = {
+        'prepared': len(entries), 'derived': 0, 'attempted': 0, 'elapsed_ms': 0.0,
+        'scope': 'pinned routing cards', 'deadline_limited': False,
+    }
+    hydrated = set()
 
-        def read_card(entry):
-            try:
-                source = (catalog_module.get(entry['resource_id'], hub, materialize=False)
-                          if entry['type'] == 'skill' else catalog_module.get_prompt(entry['resource_id'], hub))
-                if (source['content_sha256'] != entry.get('content_sha256')
-                        or (staged and entry['type'] == 'skill' and entry.get('bundle_sha256')
-                            and source.get('bundle_sha256') != entry['bundle_sha256'])):
-                    raise ValueError('CARD_SOURCE_CHANGED')
-                card = build_card(source)
-                return {**entry, 'resource_card': card, 'choice_metadata': source.get('metadata') or {},
-                        'purpose_excerpt': entry.get('purpose_excerpt', '') + '\nAuthored routing card: ' + render_card(card)}, None
-            except (KeyError, ValueError, OSError) as error:
-                return entry, {'id': entry['id'], 'error': type(error).__name__}
+    def prepare_cards(rows, deadline):
+        if catalog_module is None or not hasattr(catalog_module, 'get'):
+            return rows
+        work = [row for row in rows if row['id'] not in hydrated]
+        if not work:
+            return rows
+        start = time.perf_counter()
+        remaining = deadline - clock()
+        if remaining <= 0:
+            card_coverage['deadline_limited'] = True
+            return rows
+        ready = {}
+        reads = _CARD_EXECUTOR.map(read_card, work, timeout=remaining)
+        try:
+            for row, error in reads:
+                identifier = row['id']
+                hydrated.add(identifier)
+                ready[identifier] = row
+                if error:
+                    retrieval.setdefault('card_errors', []).append(error)
+                else:
+                    retrieval['cards'][identifier] = row['resource_card']
+        except TimeoutError:
+            card_coverage['deadline_limited'] = True
+        finally:
+            reads.close()
+            card_coverage['elapsed_ms'] += round((time.perf_counter() - start) * 1000, 2)
+            card_coverage['attempted'] += len(work)
+            card_coverage['derived'] = len(retrieval['cards'])
+        return [ready.get(row['id'], row) for row in rows]
 
-        # Bundle validation on the mounted catalog is I/O-bound. Keep ranked order
-        # independent of which read finishes first, and never materialize here.
-        remaining = overall_deadline_at - clock()
-        if entries and remaining > 0:
-            reads = _CARD_EXECUTOR.map(read_card, entries, timeout=remaining)
-            try:
-                for index, (entry, error) in enumerate(reads):
-                    entries[index] = entry
-                    if error:
-                        retrieval.setdefault('card_errors', []).append(error)
-            except TimeoutError:
-                cards_timed_out = True
-            finally:
-                reads.close()
-        elif entries:
-            cards_timed_out = True
-    retrieval['cards'] = {e['id']: e['resource_card'] for e in entries if 'resource_card' in e}
-    retrieval['card_coverage'] = {'prepared': len(entries), 'derived': len(retrieval['cards']),
-                                  'scope': 'prepared candidates; pinned indexes unchanged',
-                                  'elapsed_ms': round((time.perf_counter() - card_started) * 1000, 2),
-                                  'deadline_limited': cards_timed_out}
-    entries, score_aliases = preparation.coalesce(entries, exact_cards=staged, explicit=explicit_ids)
+    explicit_ids = {row['resolved_id'] for row in explicit if 'resolved_id' in row}
+    if adaptive:
+        # Exact coalescing only needs cards for candidates that share the pinned base identity.
+        _, possible_aliases = preparation.coalesce(entries, explicit=explicit_ids)
+        possible_duplicates = set(possible_aliases)
+        possible_duplicates.update(row['id'] for group in possible_aliases.values() for row in group)
+        prepared = {row['id']: row for row in prepare_cards(
+            [row for row in entries if row['id'] in possible_duplicates], overall_deadline_at)}
+        entries = [prepared.get(row['id'], row) for row in entries]
+    else:
+        entries = prepare_cards(entries, overall_deadline_at)
+    entries, score_aliases = preparation.coalesce(entries, exact_cards=staged or adaptive, explicit=explicit_ids)
+    retrieval['score_reused_ids'] = {key: [entry['id'] for entry in aliases]
+                                     for key, aliases in score_aliases.items()}
     entries = preparation.interleave(entries)
-    resolution_entries = entries + [alias for group in score_aliases.values() for alias in group]
+    resolution_entries = entries if adaptive else (
+        entries + [alias for group in score_aliases.values() for alias in group])
+    if adaptive:
+        retrieval['budget_admitted_ids'] = [entry['id'] for entry in entries]
+        retrieval['scoring_budget']['candidate_pool'] = len(entries)
+        eligible_pool_ids = set(retrieval['budget_admitted_ids'])
+        for row in explicit:
+            if row.get('resolved_id') and row['resolved_id'] not in eligible_pool_ids:
+                row['outcome'] = 'SCORING_BUDGET_EXCLUDED'
     explicit_exclusions = [{'id': row['requested_id'], 'reason': row['outcome']}
                            for row in explicit if row['outcome'] != 'RESOLVED_FOR_SCORING']
     result = {'schema_version': 'openbot.elephant.route_multi.v1',
@@ -1300,7 +1265,7 @@ def run_multi(*, catalog_module, hub, query, approvals=None, transport=None, key
                                    'calibration': 'NOT_VERIFIED',
                                    'question_version': preparation.SCORING_QUESTION_VERSION},
               'loads': {'loaded': [], 'denied': [], 'unavailable': [], 'deferred': [],
-                        'limits': {'skill': 5, 'prompt': 3},
+                        'limits': {'skill': 12, 'prompt': 8},
                         'byte_budget': {'limit': byte_budget, 'served_bytes': 0,
                                         'status': 'COMPLETE', 'admission': 'rank_then_bytes'},
                         'continuation': [], 'continuation_required': False},
@@ -1308,12 +1273,29 @@ def run_multi(*, catalog_module, hub, query, approvals=None, transport=None, key
               'provider': {'requests': [], 'input_tokens': 0, 'output_tokens': 0,
                            'cost_usd': None},
               'resolution': None, 'dispatch_influenced': False}
+    if no_resource:
+        policy = _policy(policy_gate, policy_context(host_policy=host_policy))
+        if policy.get('allowed', False):
+            reason = 'ExplicitNoResourceEvidence'
+            result['resolution'] = {'outcome': 'NO_SKILL', 'reason': reason}
+            result['choice_pool']['reason'] = reason
+            result['coverage']['stop_reason'] = reason
+            result['partial'] = False
+            result['partial_reason'] = None
+            result['retrieval']['no_resource_evidence'] = 'EXPLICIT_TASK_CONSTRAINT'
+        else:
+            result['resolution'] = resolver.resolve(
+                shortlist_outcome='CANDIDATES', threshold=skill_threshold, policy=policy)
+            result['coverage']['stop_reason'] = result['partial_reason'] = 'POLICY_DENIED'
+        return result
     if not entries:
         result['resolution'] = resolver.resolve(
             shortlist_outcome=visibility['outcome'], threshold=skill_threshold,
             skill_threshold=skill_threshold, prompt_threshold=prompt_threshold,
             policy=_policy(policy_gate, policy_context(host_policy=host_policy)))
         result['coverage']['stop_reason'] = 'NO_CATALOG_ENTRY'
+        if adaptive:
+            result['choice_pool']['reason'] = 'PoolExhausted'
         return result
 
     first_policy = _policy(policy_gate, policy_context(host_policy=host_policy))
@@ -1323,17 +1305,107 @@ def run_multi(*, catalog_module, hub, query, approvals=None, transport=None, key
         result['coverage']['stop_reason'] = 'POLICY_DENIED'
         result['partial_reason'] = 'POLICY_DENIED'
         return result
+    def verify_menu(differentiated, by_id):
+        from resource_choice import recommend
+        by_id = dict(by_id)
+        # An exact loaded claim can refer to an active catalog entry outside this shortlist.
+        claims = {claim['id'] for claim in task.get('loaded_skill_ids_and_versions') or []
+                  if claim.get('content_sha256')}
+        catalog_entries = {entry['id']: entry for entry in visible}
+        catalog_names = {}
+        for entry in (*visible, *by_id.values()):
+            catalog_names.setdefault(entry['resource_id'], set()).add(entry['id'])
+
+        def qualified(reference):
+            if reference.startswith(('skill:', 'prompt:')):
+                return reference
+            names = catalog_names.get(reference, set())
+            if len(names) == 1:
+                return next(iter(names))
+            return None if names else 'skill:' + reference
+
+        if catalog_module is not None and hasattr(catalog_module, 'get') and claims:
+            from resource_card import build_card
+            for claim in sorted(claims):
+                identifier = qualified(claim)
+                if not identifier or identifier in by_id:
+                    continue
+                if clock() >= overall_deadline_at or (cancel and cancel.is_set()):
+                    break
+                kind, name = identifier.split(':', 1)
+                try:
+                    source = (catalog_module.get(name, hub, materialize=False) if kind == 'skill'
+                              else catalog_module.get_prompt(name, hub))
+                    entry = catalog_entries.get(identifier)
+                    if entry is None and kind == 'skill' and source.get('is_alias'):
+                        target = catalog_entries.get('skill:' + source['name'])
+                        if target and _conflict_identity(catalog_module, hub, name, source):
+                            entry = {**target, 'id': identifier, 'resource_id': name}
+                    if (entry and source['content_sha256'] == entry.get('content_sha256')
+                            and (kind != 'skill' or source.get('bundle_sha256') == entry.get('bundle_sha256'))):
+                        by_id[identifier] = {**entry, 'resource_card': build_card(source),
+                                             'choice_metadata': source.get('metadata') or {}}
+                except (KeyError, ValueError, OSError):
+                    continue
+
+        identities = {}
+
+        def identify(reference):
+            identifier = qualified(reference)
+            if (not identifier or not identifier.startswith('skill:') or loader is not None
+                    or not hasattr(catalog_module, 'get') or clock() >= overall_deadline_at
+                    or (cancel and cancel.is_set())):
+                return None
+            if identifier not in identities:
+                name = identifier[6:]
+                try:
+                    identities[identifier] = _conflict_identity(
+                        catalog_module, hub, name, catalog_module.get(name, hub, materialize=False))
+                except (KeyError, ValueError, OSError):
+                    identities[identifier] = None
+            return identities[identifier]
+
+        previews = {}
+        dispatched = {}
+        selected_identities = {}
+
+        def preview(entry, dependencies):
+            if cancel and cancel.is_set():
+                return None, {'outcome': 'CANCELLED', 'id': entry['resource_id'], 'type': entry['type']}
+            receipt, problem = load_verified(
+                catalog_module, hub, entry, policy_gate=policy_gate, host_policy=host_policy,
+                loader=loader, deadline_at=overall_deadline_at, clock=clock,
+                materialize=False, available_resources=dependencies, check_conflict_identity=True)
+            if problem:
+                bucket = 'denied' if problem['outcome'] in LOAD_REFUSALS else 'unavailable'
+                result['loads'][bucket].append({**problem, 'score': scores.get(entry['id'])})
+            else:
+                if loader is not None:
+                    dispatched[entry['id']] = receipt
+                selected_identities[entry['id']] = receipt.get('conflict_identity')
+                previews[entry['id']] = {key: receipt[key] for key in
+                    ('id', 'type', 'served_content_sha256', 'bundle_sha256', 'body_sha256', 'body_raw_sha256',
+                     'source_file_sha256')}
+            return receipt, problem
+
+        pool, chosen, available, dependencies = recommend(
+            differentiated, by_id, task, explicit_ids, preview,
+            result['loads']['limits'], (None if adaptive else byte_budget), identify=identify, qualify=qualified,
+            requested_kinds=kinds, language=choice_language, compatible_menu=adaptive)
+        return pool, chosen, available, dependencies, previews, dispatched, selected_identities
+
     stages = None
     fresh = {}
     live_scored = set()
+    import staged_scoring as trial
+    scope = trial.score_scope(query, policy_gate, host_policy, first_policy, key, endpoint,
+                              model, language, preparation.SCORING_QUESTION_VERSION) if use_cache and not adaptive else None
+    result['cache']['exact_revision_available'] = scope is not None
     if staged:
-        import staged_scoring as trial
         stages = trial.Stages(entries, query.get('task_state') or {}, explicit_ids,
                               retrieval.get('engine_ranks', {}), skill_threshold, prompt_threshold)
         result['retrieval']['scoring_stages'] = stages.ledger
         result['retrieval']['model_questions_planned'] = 0
-        scope = trial.score_scope(query, policy_gate, host_policy, first_policy, key, endpoint,
-                                  model, language, preparation.SCORING_QUESTION_VERSION) if use_cache else None
         keys = {e['id']: trial.resource_key(scope, e, _score_question(e)) for e in entries} if scope else {}
         result['cache'].update(mode='per_resource', reused=0, exact_revision_available=scope is not None)
     batches = [entries[index:index + batch_size] for index in range(0, len(entries), batch_size)]
@@ -1351,9 +1423,10 @@ def run_multi(*, catalog_module, hub, query, approvals=None, transport=None, key
     if not staged and query.get('task_state') is not None:
         from task_state import task_state_hash
         retrieval_pin = {**(retrieval_pin or {}), 'task_state_sha256': task_state_hash(query['task_state'])}
-    score_key = (preparation.cache_key(text, catalog, entries, model, endpoint, retriever=retrieval_pin)
-                 if use_cache and not staged else None)
-    cached = preparation.cached_scores(score_key) if use_cache and not staged else None
+    score_key = (preparation.cache_key(text, catalog, entries, model, endpoint,
+                                       retriever={'pins': retrieval_pin, 'scope': scope})
+                 if scope and not staged else None)
+    cached = preparation.cached_scores(score_key) if score_key else None
     scores, errors, deadline_at = cached or {}, 0, None
     cache_hit = cached is not None
     result['cache']['hit'] = cache_hit
@@ -1375,7 +1448,85 @@ def run_multi(*, catalog_module, hub, query, approvals=None, transport=None, key
     t_scoring_start = time.perf_counter()
     if not cache_hit:
         deadline_at = min(clock() + deadline_seconds, overall_deadline_at)
-    cancel = trial.CANCEL_CONTEXT.get() if staged else None
+    cancel = trial.CANCEL_CONTEXT.get() if staged or adaptive else None
+    if adaptive:
+        by_id = {entry['id']: entry for entry in entries}
+        pool_input = [{'id': entry['id'], 'kind': entry['type']} for entry in entries]
+        k, h = adaptive_coefficients
+        cap, attempted = 24, []
+        pending = entries[:cap]
+        result['retrieval']['adaptive_rounds'] = []
+        result['retrieval']['model_questions_planned'] = len(pending)
+        result['coverage']['batches_planned'] = 0
+
+    def finish_adaptive_round():
+        inputs = {'pool': pool_input, 'cap': cap, 'k': k, 'h': h,
+                  'attempts': [{'id': identifier, 'score': scores.get(identifier)}
+                               for identifier in attempted],
+                  'deadline': clock() >= deadline_at or result['trigger'] is not None,
+                  'no_resource_evidence': False}
+        threshold = decision(Operation.ADAPTIVE_ROUND, inputs)
+        ids = threshold['skills']['eligible_ids'] + threshold['prompts']['eligible_ids']
+        differentiated, _, _ = differentiate_qualifying(
+            [{'id': identifier} for identifier in ids], by_id, scores, text,
+            language=choice_language)
+        result['loads']['denied'].clear()
+        result['loads']['unavailable'].clear()
+        verification_started = time.perf_counter()
+        pool, _, available, *_ = verify_menu(differentiated, by_id)
+        verification_ms = round((time.perf_counter() - verification_started) * 1000, 2)
+        reused_verified_menu = False
+        if any(row.get('outcome') == 'DEADLINE' for row in result['loads']['unavailable']):
+            result['trigger'] = result['coverage']['stop_reason'] = 'DEADLINE'
+            if result['retrieval']['adaptive_rounds']:
+                pool = {**result['choice_pool']}
+                reused_verified_menu = True
+                available = result['loads']['already_loaded_exact']
+                verified = result['retrieval']['adaptive_rounds'][-1]
+                # A timed-out verification cannot represent a newly verified menu.
+                inputs['deadline'] = True
+                inputs['attempts'] = inputs['attempts'][:verified['attempted']]
+        result['selected'] = [dict(row, type=kind)
+                              for kind in ('skill', 'prompt') for row in pool[kind + 's']]
+        result['loads']['already_loaded_exact'] = sorted(available)
+        result['choice_pool'] = pool
+        verified_counts = [len(pool['skills']), len(pool['prompts'])]
+        inputs['deadline'] = inputs['deadline'] or clock() >= deadline_at
+        final = decision(Operation.ADAPTIVE_ROUND, dict(inputs, verified_counts=verified_counts))
+        if result['coverage']['stop_reason'] in ('MODEL_ERRORS', 'BUDGET_EXCEEDED'):
+            final.update(reason=result['coverage']['stop_reason'], next_cap=None, next_ids=[])
+        elif inputs['deadline']:
+            final.update(reason='Deadline', next_cap=None, next_ids=[])
+        pool['reason'] = final['reason']
+        if not reused_verified_menu:
+            pool['excluded'].extend(explicit_exclusions)
+        result['retrieval']['adaptive_rounds'].append({
+            **final, 'cap': cap, 'attempted': len(attempted), 'verification_ms': verification_ms,
+            'verified_counts': dict(zip(('skill', 'prompt'), verified_counts)),
+        })
+        result['thresholds'] = {kind: {'operator': '>=', 'value': final[kind + 's']['threshold']}
+                                for kind in ('skill', 'prompt')}
+        return final
+
+    def next_adaptive_batch():
+        nonlocal pending, cap
+        if not pending:
+            final = finish_adaptive_round()
+            if final['next_cap'] is None:
+                result['coverage']['stop_reason'] = final['reason']
+                return []
+            cap = final['next_cap']
+            pending = [by_id[identifier] for identifier in final['next_ids']]
+            result['retrieval']['model_questions_planned'] += len(pending)
+        available, pending = pending[:batch_size], pending[batch_size:]
+        # Building a batch must fit both the remaining scoring and overall route time.
+        available = prepare_cards(available, min(deadline_at, overall_deadline_at))
+        by_id.update((row['id'], row) for row in available)
+        if card_coverage['deadline_limited']:
+            result['coverage']['stop_reason'] = result['trigger'] = 'DEADLINE'
+            return []
+        result['coverage']['batches_planned'] += 1
+        return available
 
     def next_staged_batch():
         nonlocal pending
@@ -1404,12 +1555,16 @@ def run_multi(*, catalog_module, hub, query, approvals=None, transport=None, key
         pending = []
         result['coverage']['batches_planned'] = 0
         batch = next_staged_batch()
+    if adaptive:
+        batch = next_adaptive_batch()
     while not cache_hit:
         if cancel and cancel.is_set():
             result['coverage']['stop_reason'] = 'CANCELLED'
             break
         if deadline_at is not None and clock() >= deadline_at:
             result['coverage']['stop_reason'] = result['trigger'] = 'DEADLINE'
+            break
+        if adaptive and not batch:
             break
         if staged and not batch:
             result['coverage']['stop_reason'] = 'STAGED_SCORING_COMPLETE'
@@ -1435,6 +1590,11 @@ def run_multi(*, catalog_module, hub, query, approvals=None, transport=None, key
             if deadline_at is None:
                 deadline_at = clock() + deadline_seconds
             remaining = deadline_at - clock()
+            if adaptive:
+                sent_ids = list(request['questions'])
+                attempted.extend(sent_ids)
+                result['retrieval'].setdefault('adaptive_provider_batches', []).append(
+                    {'batch': index, 'cap': cap, 'ids': sent_ids})
             try:
                 record = shadow.call(request_payload=contract.provider_payload(request), key=key,
                                      budget=budget, endpoint=endpoint, transport=transport,
@@ -1442,6 +1602,9 @@ def run_multi(*, catalog_module, hub, query, approvals=None, transport=None, key
                                      timeout=remaining, max_retries=0)
             except shadow.ShadowError as failure:
                 if failure.error_class == 'BUDGET_EXCEEDED':
+                    if adaptive:
+                        del attempted[-len(sent_ids):]
+                        result['retrieval']['adaptive_provider_batches'].pop()
                     result['coverage']['stop_reason'] = 'BUDGET_EXCEEDED'
                     result['resolution'] = {'outcome': 'ROUTER_ERROR', 'fallback': None,
                                             'reason': 'budget refused before model call',
@@ -1451,31 +1614,38 @@ def run_multi(*, catalog_module, hub, query, approvals=None, transport=None, key
                 result['provider']['requests'].append(
                     {'batch': index, 'error_class': failure.error_class,
                      'status': failure.status, 'retryable': failure.retryable})
+                if adaptive and failure.error_class == 'TIMEOUT':
+                    result['coverage']['stop_reason'] = result['trigger'] = 'DEADLINE'
+                    break
             if record is not None:
                 if cancel and cancel.is_set():
                     result['coverage']['stop_reason'] = 'CANCELLED'
                     break
                 if clock() >= deadline_at:
                     result['coverage']['stop_reason'] = result['trigger'] = 'DEADLINE'
+                    if adaptive:
+                        result['provider']['input_tokens'] += int(record.get('input_tokens') or 0)
+                        result['provider']['output_tokens'] += int(record.get('output_tokens') or 0)
+                        result['provider']['cost_usd'] = record.get('cost_usd')
+                        result['provider']['requests'].append({
+                            'batch': index, 'status': record.get('status'),
+                            'request_sha256': request['request_sha256'],
+                            'error_class': 'DEADLINE', 'input_tokens': record.get('input_tokens'),
+                        })
                     break
                 try:
                     answer = contract.normalize_answer(record['raw'], request)
-                    import math
-                    if set(answer['answers']) != set(request['questions']):
-                        raise contract.ContractError('answer ids differ from requested ids')
-                    for item in answer['answers'].values():
-                        value = item.get('noul')
-                        if (item.get('type') != 'noul' or isinstance(value, bool)
-                                or not isinstance(value, (int, float))
-                                or not math.isfinite(value) or not 0 <= value <= 1):
-                            raise contract.ContractError('invalid per-resource score')
+                    normalized_scores = decision(Operation.PROVIDER_SCORES, {
+                        'ids': list(request['questions']), 'answers': answer['answers']})
+                    if normalized_scores is None:
+                        raise contract.ContractError('invalid per-resource answer')
                 except (contract.ContractError, ValueError, TypeError):
                     errors += 1
                     result['provider']['requests'].append(
                         {'batch': index, 'error_class': 'INVALID_RESPONSE'})
                     record = None
                 if record is not None:
-                    scores.update({name: item['noul'] for name, item in answer['answers'].items()})
+                    scores.update(normalized_scores)
                     if staged:
                         live_scored.update(answer['answers'])
                         fresh.update({keys[name]: scores[name] for name in answer['answers'] if keys.get(name)})
@@ -1498,6 +1668,11 @@ def run_multi(*, catalog_module, hub, query, approvals=None, transport=None, key
         if errors >= max_model_errors:
             result['coverage']['stop_reason'] = result['trigger'] = 'MODEL_ERRORS'
             break
+        if adaptive:
+            # A failed request used its IDs; advance without resending them.
+            index += 1
+            batch = next_adaptive_batch()
+            continue
         if record is not None:
             if staged:
                 index += 1
@@ -1537,10 +1712,10 @@ def run_multi(*, catalog_module, hub, query, approvals=None, transport=None, key
             result['resolution'] = {'outcome': 'ROUTER_ERROR', 'reason': 'CANCELLED', 'fallback': None}
             result['partial_reason'] = 'CANCELLED'
             return result
-    if use_cache and not staged and not cache_hit and scored == len(entries) and result['trigger'] is None:
+    if score_key and not cache_hit and scored == len(entries) and result['trigger'] is None:
         preparation.store_scores(score_key, scores)
     reused = {}
-    for representative, group in score_aliases.items():
+    for representative, group in ({} if adaptive else score_aliases).items():
         if representative in scores:
             for alias in group:
                 scores[alias['id']] = scores[representative]
@@ -1573,6 +1748,38 @@ def run_multi(*, catalog_module, hub, query, approvals=None, transport=None, key
     result['partial'] = not model_saw_full
     result['partial_reason'] = (result['coverage']['stop_reason'] if scored < len(entries)
                                 else 'CANDIDATE_PREFILTER') if result['partial'] else None
+
+    if adaptive:
+        rounds = result['retrieval']['adaptive_rounds']
+        if not rounds or rounds[-1]['attempted'] != len(attempted):
+            finish_adaptive_round()
+        if result['trigger'] == 'DEADLINE' or clock() >= deadline_at:
+            result['trigger'] = result['coverage']['stop_reason'] = result['partial_reason'] = 'DEADLINE'
+            result['partial'] = True
+            result['choice_pool']['reason'] = 'Deadline'
+        result['retrieval']['route_timing_ms'] = {
+            'provider_and_rounds': scoring_elapsed_ms,
+            'route': round((time.perf_counter() - t_overall_start) * 1000, 2),
+        }
+        if cancel and cancel.is_set():
+            result['choice_pool'] = {'skills': [], 'prompts': [], 'excluded': [], 'reason': 'CANCELLED'}
+            result['selected'] = []
+            result['partial_reason'] = result['coverage']['stop_reason'] = 'CANCELLED'
+            result['resolution'] = {'outcome': 'ROUTER_ERROR', 'reason': 'CANCELLED'}
+        elif result['resolution'] is None:
+            if result['trigger']:
+                result['fallback_discovery'] = shortlist.catalog_search(
+                    catalog_module, hub, text, limit=batch_size, kinds=('skill', 'prompt'),
+                    deadline=overall_deadline_at)
+            result['resolution'] = {
+                'outcome': ('SELECTED' if result['selected'] else 'ROUTER_ERROR'
+                            if result['trigger'] or (errors and not scores)
+                            else 'ABSTAIN_LOW_CONFIDENCE'),
+                'reason': result['trigger'] or ('MODEL_ERRORS' if errors and not scores
+                                                else result['choice_pool']['reason']),
+                'fallback': 'APPROVED_DISCOVERY' if result['trigger'] else None,
+            }
+        return result
 
     if result['resolution'] is not None and (staged or not scores):
         return result
@@ -1622,7 +1829,7 @@ def run_multi(*, catalog_module, hub, query, approvals=None, transport=None, key
     continuation = result['loads']['continuation']
 
     differentiated, diff_ledger, excl_ledger = differentiate_qualifying(
-        resolution['selected'], by_id, scores, text, language=language)
+        resolution['selected'], by_id, scores, text, language=choice_language)
 
     # Preserve all qualifying selection in result['selected'] with explicit qualification and provenance
     for item in sorted(differentiated, key=lambda d: (-d['score'], -d['specificity'], d['id'])):
@@ -1635,91 +1842,20 @@ def run_multi(*, catalog_module, hub, query, approvals=None, transport=None, key
             'primary_id': item['primary_id'],
         })
 
-    from resource_choice import recommend
-    task = query.get('task_state') or {}
-    # An exact loaded claim can refer to an active catalog entry outside this shortlist.
-    claims = {claim['id'] for claim in task.get('loaded_skill_ids_and_versions') or []
-              if claim.get('content_sha256')}
-    catalog_entries = {entry['id']: entry for entry in visible}
-    catalog_names = {}
-    for entry in (*visible, *by_id.values()):
-        catalog_names.setdefault(entry['resource_id'], set()).add(entry['id'])
+    pool, chosen, available, dependencies, previews, dispatched, selected_identities = verify_menu(
+        differentiated, by_id)
+    result['loads']['already_loaded_exact'] = sorted(available)
+    presented = pool['skills'] + pool['prompts']
+    covered = {capability for row in presented if row['recommended'] or row['id'] in available
+               for capability in row['capabilities']}
+    required = {label.strip().casefold() for label in task.get('required_capabilities') or ()}
+    result['loads']['capability_coverage'] = {
+        'evidence': 'verified authored capability labels',
+        'covered': sorted(required & covered), 'missing': sorted(required - covered),
+    }
+    result['loads']['requested_kinds_without_eligible_choice'] = [
+        kind for kind in sorted(kinds) if not pool[kind + 's']]
 
-    def qualified(reference):
-        if reference.startswith(('skill:', 'prompt:')):
-            return reference
-        names = catalog_names.get(reference, set())
-        if len(names) == 1:
-            return next(iter(names))
-        return None if names else 'skill:' + reference
-
-    if catalog_module is not None and hasattr(catalog_module, 'get') and claims:
-        from resource_card import build_card
-        for claim in sorted(claims):
-            identifier = qualified(claim)
-            if not identifier or identifier in by_id:
-                continue
-            if clock() >= overall_deadline_at or (cancel and cancel.is_set()):
-                break
-            kind, name = identifier.split(':', 1)
-            try:
-                source = (catalog_module.get(name, hub, materialize=False) if kind == 'skill'
-                          else catalog_module.get_prompt(name, hub))
-                entry = catalog_entries.get(identifier)
-                if entry is None and kind == 'skill' and source.get('is_alias'):
-                    target = catalog_entries.get('skill:' + source['name'])
-                    if target and _conflict_identity(catalog_module, hub, name, source):
-                        entry = {**target, 'id': identifier, 'resource_id': name}
-                if (entry and source['content_sha256'] == entry.get('content_sha256')
-                        and (kind != 'skill' or source.get('bundle_sha256') == entry.get('bundle_sha256'))):
-                    by_id[identifier] = {**entry, 'resource_card': build_card(source),
-                                         'choice_metadata': source.get('metadata') or {}}
-            except (KeyError, ValueError, OSError):
-                continue
-
-    identities = {}
-
-    def identify(reference):
-        identifier = qualified(reference)
-        if (not identifier or not identifier.startswith('skill:') or loader is not None
-                or not hasattr(catalog_module, 'get') or clock() >= overall_deadline_at
-                or (cancel and cancel.is_set())):
-            return None
-        if identifier not in identities:
-            name = identifier[6:]
-            try:
-                identities[identifier] = _conflict_identity(
-                    catalog_module, hub, name, catalog_module.get(name, hub, materialize=False))
-            except (KeyError, ValueError, OSError):
-                identities[identifier] = None
-        return identities[identifier]
-
-    previews = {}
-    dispatched = {}
-    selected_identities = {}
-
-    def preview(entry, dependencies):
-        if cancel and cancel.is_set():
-            return None, {'outcome': 'CANCELLED', 'id': entry['resource_id'], 'type': entry['type']}
-        receipt, problem = load_verified(
-            catalog_module, hub, entry, policy_gate=policy_gate, host_policy=host_policy,
-            loader=loader, deadline_at=overall_deadline_at, clock=clock,
-            materialize=False, available_resources=dependencies, check_conflict_identity=True)
-        if problem:
-            bucket = 'denied' if problem['outcome'] in LOAD_REFUSALS else 'unavailable'
-            result['loads'][bucket].append({**problem, 'score': scores.get(entry['id'])})
-        else:
-            if loader is not None:
-                dispatched[entry['id']] = receipt
-            selected_identities[entry['id']] = receipt.get('conflict_identity')
-            previews[entry['id']] = {key: receipt[key] for key in
-                ('id', 'type', 'served_content_sha256', 'bundle_sha256', 'body_sha256', 'body_raw_sha256',
-                 'source_file_sha256')}
-        return receipt, problem
-
-    pool, chosen, available, dependencies = recommend(
-        differentiated, by_id, task, explicit_ids, preview,
-        result['loads']['limits'], budget['limit'], identify=identify, qualify=qualified)
     result['choice_pool'] = pool
     pool['excluded'].extend(explicit_exclusions)
     items = {d['entry']['id']: d for d in differentiated}

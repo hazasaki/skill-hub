@@ -58,15 +58,6 @@ def validate_inputs(inputs):
     return manifest
 
 
-class ContainerDashboard(Dashboard):
-    def source(self, name, path):
-        result = super().source(name, path)
-        if path == self.catalog:
-            result.update(type='sqlite-snapshot', recorded_at=self.input_manifest['recorded_at'],
-                          sha256=self.input_manifest['sha256']['skill-index.db'])
-        return result
-
-
 def create_local_app(content, catalog, state):
     """Build only local Markdown; absent native/telemetry sources stay unavailable."""
     # Use the same indexer as MCP so resource IDs and full-text search agree.

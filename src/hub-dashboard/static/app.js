@@ -1292,7 +1292,7 @@ async function runRouteTaskStudio() {
     if (loadingText) {
       loadingText.textContent = mode === 'semantic' ?
         'Đang gửi truy vấn vector ngữ nghĩa tới bge-m3 trên dGPU...' :
-        'Đang thực thi chuỗi TEMPR 4-Engine và mô hình chấm điểm Elephant...';
+        'Đang định tuyến và chấm điểm tài nguyên...';
     }
   }
 
@@ -1357,13 +1357,20 @@ function renderRouteChoicePool(data) {
     const recommendation = choice.recommended === true ? 'Đề xuất' :
       choice.recommended === false ? 'Phương án khác' : 'Chưa rõ đề xuất';
     const dependencies = Array.isArray(choice.dependencies) ? choice.dependencies.join(', ') : '';
+    const capabilities = Array.isArray(choice.capabilities) ? choice.capabilities.join(', ') : '';
+    const scoreText = Number.isFinite(choice.score) ? ` · Điểm: ${Number(choice.score).toFixed(4)}` : '';
+    const rawPin = typeof choice.source_raw_sha256 === 'string' ? choice.source_raw_sha256 : '';
+    const bundlePin = typeof choice.bundle_sha256 === 'string' ? choice.bundle_sha256 : '';
     card.innerHTML = `
       <strong>${escapeHtml(choice.id)}</strong>
-      <div class="text-xs">${recommendation} · ${loaded.has(choice.id) ? 'Đã nạp' : 'Chưa nạp'}</div>
+      <div class="text-xs">${recommendation} · ${loaded.has(choice.id) ? 'Đã nạp' : 'Chưa nạp'}${scoreText}</div>
       <div class="text-xs text-muted">Lý do: ${escapeHtml(choice.reason)}</div>
+      ${capabilities ? `<div class="text-xs">Capability: ${escapeHtml(capabilities)}</div>` : ''}
       ${dependencies ? `<div class="text-xs">Phụ thuộc: ${escapeHtml(dependencies)}</div>` : ''}
       ${choice.role ? `<div class="text-xs">Vai trò: ${escapeHtml(choice.role)}</div>` : ''}
       ${Number.isFinite(choice.body_bytes) ? `<div class="text-xs">${choice.body_bytes} byte</div>` : ''}
+      ${rawPin ? `<div class="text-xs font-mono">raw_sha256: ${escapeHtml(rawPin.slice(0, 16))}…${bundlePin ? ` · bundle: ${escapeHtml(bundlePin.slice(0, 12))}…` : ''}</div>` : ''}
+      <label class="text-xs"><input type="checkbox" class="choice-select-box" data-qid="${escapeHtml(choice.id)}" ${choice.recommended === true ? 'checked' : ''}> Chọn nạp (load_resource_choice)</label>
       <button type="button" class="btn btn-subtle btn-xs">Mở ngăn Chi tiết</button>`;
     card.querySelector('button').addEventListener('click', () => openResourceInspector(choice.resource_id, kind));
     items.appendChild(card);
@@ -1376,6 +1383,73 @@ function renderRouteChoicePool(data) {
       (exclusion.related_id ? ` · ${exclusion.related_id}` : '');
     items.appendChild(row);
   }
+  if (pool.skills.length || pool.prompts.length) {
+    const summary = document.createElement('div');
+    summary.className = 'text-xs text-muted';
+    summary.textContent = `Menu lựa chọn (0 tự nạp, chọn 0 hoặc tối đa 12 skill · 8 prompt): ${pool.skills.length} skill · ${pool.prompts.length} prompt`;
+    items.appendChild(summary);
+    const controls = document.createElement('div');
+    controls.className = 'mt-sm';
+    controls.innerHTML = `<button type="button" class="btn btn-primary btn-xs" id="btn-load-selected-choices">Tải các mục đã chọn (load_resource_choice)</button> <button type="button" class="btn btn-subtle btn-xs" id="btn-clear-selected-choices">Không chọn (0)</button><div id="choice-load-results" class="text-xs mt-xs"></div>`;
+    const byId = new Map(choiceRows.filter(c => typeof c?.id === 'string').map(c => [c.id, c]));
+    controls.querySelector('#btn-clear-selected-choices')?.addEventListener('click', () => {
+      items.querySelectorAll('.choice-select-box').forEach(cb => { cb.checked = false; });
+      const resBox = controls.querySelector('#choice-load-results');
+      if (resBox) resBox.textContent = 'Đã chọn 0 tài nguyên (none).';
+    });
+    controls.querySelector('#btn-load-selected-choices')?.addEventListener('click', async () => {
+      const resBox = controls.querySelector('#choice-load-results');
+      const selectedIds = Array.from(items.querySelectorAll('.choice-select-box')).filter(cb => cb.checked).map(cb => cb.dataset.qid);
+      if (!selectedIds.length) { if (resBox) resBox.textContent = 'Đã chọn 0 tài nguyên (none).'; return; }
+      const ordered = [];
+      const seen = new Set();
+      const visit = (id) => {
+        if (seen.has(id) || !byId.has(id)) return;
+        seen.add(id);
+        for (const dep of (byId.get(id).dependencies || [])) visit(dep);
+        ordered.push(byId.get(id));
+      };
+      selectedIds.forEach(visit);
+      const loadedClaims = [];
+      const lines = [];
+      for (const item of ordered) {
+        try {
+          const resp = await apiFetch('load_resource_choice', {
+            method: 'POST',
+            body: {
+              resource_id: item.id,
+              source_raw_sha256: item.source_raw_sha256,
+              ...(item.bundle_sha256 ? {bundle_sha256: item.bundle_sha256} : {}),
+              ...(loadedClaims.length ? {loaded_skill_ids_and_versions: loadedClaims} : {})
+            }
+          });
+          const d = resp.data || resp;
+          if (d?.load_verified === true && d.verified_in_client === true) {
+            const claim = {id: item.id, content_sha256: d.body_raw_sha256};
+            if (d.bundle_sha256) claim.bundle_sha256 = d.bundle_sha256;
+            if (item.version) claim.version = item.version;
+            loadedClaims.push(claim);
+            const cardEl = document.createElement('details');
+            cardEl.open = true;
+            cardEl.innerHTML = `<summary>✓ ${escapeHtml(item.id)}: ${d.body_bytes} B · sha256=${escapeHtml(d.body_raw_sha256)}</summary><pre class="text-xs">${escapeHtml(d.body || '')}</pre>`;
+            lines.push(cardEl);
+          } else {
+            const errEl = document.createElement('div');
+            errEl.textContent = `✗ ${item.id}: ${(d && d.error) || 'LOAD_FAILED'}`;
+            lines.push(errEl);
+          }
+        } catch (err) {
+          const errEl = document.createElement('div');
+          errEl.textContent = `✗ ${item.id}: ${err.message}`;
+          lines.push(errEl);
+        }
+      }
+      if (resBox) {
+        resBox.replaceChildren(...lines);
+      }
+    });
+    items.appendChild(controls);
+  }
   if (!items.childElementCount) items.textContent = 'Không có tài nguyên trong danh sách này.';
 }
 
@@ -1383,8 +1457,38 @@ function renderRouteTaskStudioResults(data) {
   renderRouteChoicePool(data);
   const context = document.getElementById('route-normalized-context');
   if (context) {
-    context.hidden = !data.task_state;
-    context.textContent = data.task_state ? JSON.stringify({task_state: data.task_state, task_state_sha256: data.task_state_sha256}, null, 2) : '';
+    const explicitRes = Array.isArray(data.retrieval?.explicit_resolution) ? data.retrieval.explicit_resolution : null;
+    const hasContext = Boolean(data.task_state) || Boolean(explicitRes && explicitRes.length);
+    context.hidden = !hasContext;
+    if (hasContext) {
+      const shown = {task_state: data.task_state || null, task_state_sha256: data.task_state_sha256 || null};
+      if (explicitRes && explicitRes.length) shown.explicit_resolution = explicitRes;
+      context.textContent = JSON.stringify(shown, null, 2);
+    } else {
+      context.textContent = '';
+    }
+  }
+  const followBtn = document.getElementById('btn-carry-followup-state');
+  if (followBtn) {
+    const loadedItems = (Array.isArray(data.loads?.loaded) ? data.loads.loaded : [])
+      .filter(r => r && typeof r.id === 'string' && r.id.trim())
+      .map(r => {
+        const entry = {id: r.id};
+        if (typeof r.version === 'string' && r.version) entry.version = r.version;
+        const sha = r.file_sha256 || r.body_raw_sha256 || r.content_sha256;
+        if (typeof sha === 'string' && /^[0-9a-f]{64}$/.test(sha)) entry.content_sha256 = sha;
+        return entry;
+      });
+    followBtn.hidden = loadedItems.length === 0;
+    followBtn.onclick = () => {
+      const target = document.getElementById('route-context-loaded_skill_ids_and_versions');
+      if (target) {
+        target.value = JSON.stringify(loadedItems, null, 2);
+        const details = target.closest('details');
+        if (details) details.open = true;
+        target.focus();
+      }
+    };
   }
   const resultsBox = document.getElementById('route-studio-results');
   if (!resultsBox) return;

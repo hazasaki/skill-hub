@@ -1,0 +1,13 @@
+[package]
+name = "skill_hub_host"
+version = "0.1.0"
+edition = "2021"
+description = "Rust host client for Skill Hub task-state, receipt verification, and verbatim native delivery"
+
+[[bin]]
+name = "skill_hub_host"
+path = "src/main.rs"
+
+[lib]
+name = "skill_hub_host"
+path = "src/lib.rs"

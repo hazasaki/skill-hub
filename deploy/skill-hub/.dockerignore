@@ -6,7 +6,6 @@
 !app/
 !app/*.py
 !rust/
-!rust/near.rs
-
-!rust/metadata.rs
-!rust/refs.rs
+!rust/*.rs
+!rust/Cargo.toml
+!rust/Cargo.lock

@@ -2,13 +2,11 @@
 from collections import OrderedDict
 from contextvars import ContextVar
 import hashlib
-import json
 from pathlib import Path
-import re
 import threading
 import time
 
-CAPS = (24, 48, 96)
+from rust_routing import Operation, canonical_json, decision
 REVISION_CONTEXT = ContextVar('score_revision', default=None)
 CANCEL_CONTEXT = ContextVar('score_cancel', default=None)
 _CACHE = OrderedDict()
@@ -18,32 +16,31 @@ _LIMIT = 4096
 
 
 def digest(value):
-    return hashlib.sha256(json.dumps(
-        value, ensure_ascii=False, sort_keys=True, separators=(',', ':'), allow_nan=False
-    ).encode('utf-8')).hexdigest()
+    return decision(Operation.DIGEST, canonical_json(value))
 
 
 def score_scope(query, policy_gate, host_policy, verdict, key, endpoint, model, language, rubric):
     revision = REVISION_CONTEXT.get()
-    # Provider reports ALIAS_ONLY. Never infer that its mutable label is an exact revision.
     if not revision or not key or not getattr(policy_gate, '__file__', None):
         return None
     try:
         policy_hash = hashlib.sha256(Path(policy_gate.__file__).read_bytes()).hexdigest()
-        return digest([query, policy_hash, host_policy, verdict, digest(key),
-                       endpoint, model, revision, language, rubric])
+        return decision(Operation.CACHE_IDENTITY, {'kind': 'scope', 'revision': revision, 'canonical': canonical_json(
+            [query, policy_hash, host_policy, verdict, digest(key), endpoint, model, revision,
+             language, rubric]).decode('utf-8')})
     except (OSError, TypeError, ValueError):
         return None
 
 
 def resource_key(scope, entry, question):
+    if not scope:
+        return None
     card = entry.get('resource_card') or {}
     pins = [card.get('card_sha256'), card.get('source_raw_sha256'), entry.get('content_sha256')]
     if entry['type'] == 'skill':
         pins.append(entry.get('bundle_sha256'))
-    if scope and all(isinstance(pin, str) and re.fullmatch('[a-f0-9]{64}', pin) for pin in pins):
-        return digest([scope, entry['id'], question, pins, entry.get('state'), entry.get('risk')])
-    return None
+    return decision(Operation.CACHE_IDENTITY, {'kind': 'resource', 'scope': scope, 'pins': pins, 'canonical': canonical_json(
+        [scope, entry['id'], question, pins, entry.get('state'), entry.get('risk')]).decode('utf-8')})
 
 
 def cached(key):
@@ -65,74 +62,42 @@ def publish(fresh):
             _CACHE.popitem(last=False)
 
 
-def words(text):
-    return set(re.findall(r'[^\W_]+', text.casefold()))
-
-
 class Stages:
     def __init__(self, entries, task_state, explicit, ranks, skill_bar, prompt_bar):
         self.bars = {'skill': skill_bar, 'prompt': prompt_bar}
-        self.explicit = set(explicit)
-        goals = [task_state.get('current_step'), task_state.get('desired_output'),
-                 *(task_state.get('artifact_types') or [])]
-        self.goals = [terms for value in goals if value and (terms := words(value))]
-        self.matches = {}
+        from shortlist_runtime import query_terms
+
+        goals = (task_state.get('required_capabilities') or
+                 [task_state.get('current_step'), task_state.get('desired_output'),
+                  *(task_state.get('artifact_types') or [])])
+        goals = [tokens for goal in goals if goal and (tokens := query_terms(goal, prefer_ascii=False))]
+        self.entries = {entry['id']: entry for entry in entries}
+        rows = []
         for entry in entries:
             fields = (entry.get('resource_card') or {}).get('fields') or {}
             authored = ' '.join(str(fields.get(field, {}).get('value') or '')
                                 for field in ('capability', 'use_when', 'produces'))
-            terms = words(authored)
-            self.matches[entry['id']] = {i for i, goal in enumerate(self.goals) if goal <= terms}
-        rare = {}
-        for entry in entries:
-            evidence = ranks.get(entry['id'], {})
-            if len(evidence) == 1:
-                engine, rank = next(iter(evidence.items()))
-                if rank <= 5 and (engine not in rare or rank < rare[engine][0]):
-                    rare[engine] = (rank, entry['id'])
-        self.rare = {identifier for _, identifier in rare.values()}
-        self.remaining = sorted(entries, key=lambda e: (e['id'] not in self.explicit,
-                                e['id'] not in self.rare))
+            metadata = ' '.join(str(entry.get(key) or '')
+                                for key in ('resource_id', 'description', 'tags'))
+            rows.append((entry['id'], entry['type'],
+                         query_terms(authored.strip() or metadata, prefer_ascii=False), bool(authored.strip())))
+        self.remaining, self.goals = decision(Operation.STAGE_INIT, {
+            'entries': rows, 'goals': goals, 'explicit': sorted(explicit), 'ranks': ranks})
         self.admitted = []
         self.ledger = []
 
     def advance(self, scores):
-        if self.ledger:
-            covered = set()
-            for entry in self.admitted:
-                score = scores.get(entry['id'], -1)
-                bar = self.bars[entry['type']]
-                if score > bar or (entry['type'] == 'prompt' and score == bar):
-                    covered.update(self.matches[entry['id']])
-            missing = set(range(len(self.goals))) - covered
-            self.ledger[-1]['goal_coverage'] = {
-                'supplied': len(self.goals), 'covered_indices': sorted(covered),
-                'semantics': 'literal authored metadata overlap for qualifying scores',
-            }
-            if not self.remaining:
-                self.ledger[-1]['stop_detail'] = 'POOL_EXHAUSTED'
-                return []
-            if len(self.ledger) == len(CAPS):
-                self.ledger[-1]['stop_detail'] = 'STAGE_CAP_REACHED'
-                return []
-            explicit_pending = any(e['id'] in self.explicit for e in self.remaining)
-            gap_pending = any(self.matches[e['id']] & missing for e in self.remaining)
-            if explicit_pending:
-                reason = 'EXPLICIT_PENDING'
-            elif gap_pending:
-                reason = 'UNRESOLVED_CURRENT_STEP_WITH_AUTHORED_EVIDENCE'
-            else:
-                self.ledger[-1]['stop_detail'] = 'NO_REMAINING_AUTHORED_COVERAGE_EVIDENCE'
-                return []
-            self.remaining.sort(key=lambda e: (e['id'] not in self.explicit,
-                                -len(self.matches[e['id']] & missing)))
-        else:
-            reason = 'INITIAL'
-        if not self.remaining:
+        stage = decision(Operation.STAGE_NEXT, {'remaining': self.remaining, 'admitted': self.admitted,
+                             'step': len(self.ledger), 'goals': self.goals,
+                             'bars': self.bars, 'scores': scores})
+        if stage['coverage'] is not None:
+            self.ledger[-1]['goal_coverage'] = stage['coverage']
+        if 'stop' in stage:
+            self.ledger[-1]['stop_detail'] = stage['stop']
+        if 'next' not in stage:
             return []
-        cap = CAPS[len(self.ledger)]
-        count = cap - len(self.admitted)
-        selected, self.remaining = self.remaining[:count], self.remaining[count:]
-        self.admitted.extend(selected)
-        self.ledger.append({'cap': cap, 'reason': reason, 'ids': [e['id'] for e in selected]})
-        return selected
+        self.remaining = stage['rest']
+        self.admitted.extend(stage['next'])
+        ids = [entry['id'] for entry in stage['next']]
+        self.ledger.append({'cap': stage['cap'], 'reason': stage['reason'], 'ids': ids})
+        return [self.entries[identifier] for identifier in ids]

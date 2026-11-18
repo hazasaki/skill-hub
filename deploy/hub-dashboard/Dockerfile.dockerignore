@@ -11,3 +11,10 @@
 **/__pycache__/**
 **/test_*.py
 **/*.pyc
+!src/host-rust/
+!src/host-rust/Cargo.toml
+!src/host-rust/Cargo.lock
+!src/host-rust/src/
+!src/host-rust/src/*.rs
+!src/host-rust/tests/
+!src/host-rust/tests/*.rs
