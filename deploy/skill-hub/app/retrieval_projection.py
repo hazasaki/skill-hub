@@ -215,6 +215,7 @@ def build(hub, index_path, *, ontology=None, now=None, kinds=('skill', 'prompt')
     or null, and its absence is counted.
     """
     hub = Path(hub)
+    source_root = hub.resolve()
     index_path = Path(index_path)
     built_at = (now or dt.datetime.now(dt.timezone.utc)).replace(microsecond=0).isoformat()
     index_bytes = index_path.read_bytes()
@@ -270,6 +271,8 @@ def build(hub, index_path, *, ontology=None, now=None, kinds=('skill', 'prompt')
                 meta, has_frontmatter, body_sha = {}, False, None
             else:
                 try:
+                    if path.is_symlink() or not path.resolve().is_relative_to(source_root):
+                        raise OSError('source outside catalog root or linked')
                     text = path.read_text(encoding='utf-8', errors='replace')
                 except OSError:
                     stats['rows_unreadable'] += 1

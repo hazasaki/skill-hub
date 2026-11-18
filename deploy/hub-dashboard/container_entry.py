@@ -61,11 +61,18 @@ def validate_inputs(inputs):
 def create_local_app(content, catalog, state):
     """Build only local Markdown; absent native/telemetry sources stay unavailable."""
     # Use the same indexer as MCP so resource IDs and full-text search agree.
+    import retrieval_projection
     import skill_index
     skill_index.build(content, output_path=catalog)
     app = Dashboard(project=Path('/data'), state=state)
     app.catalog = catalog
     app.sources.catalog = catalog
+    document, _ = retrieval_projection.build(content, catalog)
+    graph_path = catalog.with_name('dashboard-graph.json')
+    graph_path.write_bytes(retrieval_projection.canonical({
+        **document['graph'], 'built_at': document['built_at'], 'gaps': document['gaps'],
+    }))
+    app.sources.graph_projection = graph_path
     return app
 
 

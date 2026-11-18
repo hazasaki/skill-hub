@@ -37,9 +37,13 @@ The standalone dashboard defaults to loopback inside its container; an absent MC
 service therefore returns unavailable promptly. This target is operator configuration,
 never a browser-supplied address. When running just
 the dashboard, routing/semantic requests and health probes are unavailable.
-Native agent/plugin configuration, telemetry, graph projections and historical
-quality receipts are not bundled; absent sources are shown as unavailable. Static
-quality findings are heuristics rather than security approval. The container
+The Dashboard builds a local capability graph from the mounted catalog's authored
+frontmatter. Its temporary projection and index stay in container storage. Native
+agent/plugin configuration, telemetry and historical quality receipts are not
+bundled. Absent sources are shown as unavailable.
+[Graph API fields](../../src/hub-dashboard/README.md#api-contract)
+
+Static quality findings are heuristics rather than security approval. The container
 healthcheck verifies HTTP availability only.
 
 This is a local single-user console. Keep the loopback binding; it has no public

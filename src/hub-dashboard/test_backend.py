@@ -79,32 +79,227 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(self.app.get('overview',{})['data']['counts']['plugins'],1)
         with self.assertRaises(ValueError): self.app.sources.integrations('http://evil.test')
 
-    def test_graph_catalog_search_and_focus_keep_full_coverage(self):
-        rows=[(f'extra-{i:03d}', '', '', 'code', 1, 'abc', f'extra-{i:03d}', '') for i in range(110)]
+    def test_graph_catalog_pagination_search_and_alias_fallback(self):
+        names = {f'extra-{i:03d}' for i in range(205)} | {'zz-alias', 'alpha', 'alias'}
+        rows = [(name, '', '', 'code', 1, 'abc', name, '') for name in sorted(names - {'alpha', 'alias', 'zz-alias'})]
         rows.append(('zz-alias', '', '', 'code', 1, 'abc', 'alpha', ''))
         with closing(sqlite3.connect(self.app.catalog)) as con:
-            con.executemany('INSERT INTO skills VALUES(?,?,?,?,?,?,?,?)',rows)
+            con.executemany('INSERT INTO skills VALUES(?,?,?,?,?,?,?,?)', rows)
             con.commit()
 
-        results=self.app.get('graph',{'type':'skill','q':'zz-alias'})['data']
-        self.assertEqual([node['id'] for node in results['nodes']],['skill:zz-alias'])
-        self.assertEqual(results['edges'],[])
-        focus={'node_id':'skill:zz-alias','depth':'1'}
-        limited=self.app.get('graph',dict(focus,limit='1'))['data']
-        self.assertTrue(limited['truncated'])
-        self.assertEqual([node['id'] for node in limited['nodes']],['skill:zz-alias'])
-        expanded=self.app.get('graph',focus)['data']
-        self.assertEqual([node['id'] for node in expanded['nodes']],['skill:zz-alias','skill:alpha'])
-        edge,=expanded['edges']
-        self.assertEqual((edge['source'],edge['target'],edge['type']),('skill:zz-alias','skill:alpha','alias_of'))
-        self.assertEqual(edge['evidence']['source'],'catalog canonical_name')
+        first = self.app.get('graph', {'type': 'skill', 'limit': '999'})['data']
+        self.assertEqual((first['offset'], first['limit'], first['total'], first['next_offset']), (0, 200, 208, 200))
+        second = self.app.get('graph', {'type': 'skill', 'limit': '200', 'offset': str(first['next_offset'])})['data']
+        first_ids, second_ids = ({node['id'] for node in page['nodes']} for page in (first, second))
+        self.assertEqual((len(first_ids), len(second_ids)), (200, 8))
+        self.assertFalse(first_ids & second_ids)
+        self.assertEqual(first_ids | second_ids, {f'skill:{name}' for name in names})
+        self.assertIsNone(second['next_offset'])
 
-    def test_graph_projection_expansion_and_library(self):
-        path=self.root/GRAPH; path.parent.mkdir(parents=True,exist_ok=True)
-        path.write_text(json.dumps({'nodes':{'skill:a':{'t':'skill','n':'a'},'skill:b':{'t':'skill','n':'b'},'ext:bad':{'t':'ext','n':'bad'}},'edges':[{'s':'skill:a','d':'skill:b','r':'depends_on','src':'authored'},{'s':'skill:a','d':'ext:bad','r':'provides'}]}))
-        graph=self.app.get('graph',{'node_id':'skill:a','depth':'1'})['data']
-        self.assertEqual(len(graph['nodes']),2); self.assertEqual(len(graph['edges']),1)
-        self.assertEqual(self.app.get('graph',{'type':'prompt'})['data']['nodes'],[])
+        results = self.app.get('graph', {'type': 'skill', 'q': 'SKILL:ZZ-ALIAS'})['data']
+        alias, = results['nodes']
+        self.assertEqual(alias['id'], 'skill:zz-alias')
+        self.assertEqual(results['edges'], [])
+        self.assertEqual((alias['degree'], alias['visible_degree'], alias['isolated']), (1, 0, False))
+        focus = {'node_id': 'skill:zz-alias', 'depth': '1'}
+        limited = self.app.get('graph', dict(focus, limit='1'))['data']
+        self.assertTrue(limited['truncated'])
+        self.assertEqual([node['id'] for node in limited['nodes']], ['skill:zz-alias'])
+        expanded = self.app.get('graph', focus)['data']
+        self.assertEqual([node['id'] for node in expanded['nodes']], ['skill:zz-alias', 'skill:alpha'])
+        edge, = expanded['edges']
+        self.assertEqual((edge['source'], edge['target'], edge['type']), ('skill:zz-alias', 'skill:alpha', 'alias_of'))
+        self.assertEqual(edge['evidence']['source'], 'catalog canonical_name')
+
+    def write_graph_fixture(self, capability_fanout=0):
+        timestamp = '2025-01-01T00:00:00Z'
+        body_by_name = {'alpha': 'needle in body', 'alias': 'other', 'isolated': 'fixture body'}
+        pins = {name: digest(body.encode()) for name, body in body_by_name.items()}
+        nodes = {
+            f'{kind}:{name}': {'t': kind, 'n': name, 'ch': pins[name]}
+            for kind in ('skill', 'prompt')
+            for name in ('alpha', 'alias')
+        }
+        with closing(sqlite3.connect(self.app.catalog)) as con:
+            for table in ('skills', 'prompts'):
+                con.executemany(f'UPDATE {table} SET body_sha256=? WHERE name=?',
+                                ((pins[name], name) for name in ('alpha', 'alias')))
+            con.executemany('INSERT INTO skills VALUES(?,?,?,?,?,?,?,?)', (
+                (name, '', '', 'code', 1, pins['isolated'], name, body_by_name['isolated'])
+                for name in ('isolated', 'catalog-only', 'stale-pin')
+            ))
+            con.execute('INSERT INTO prompts VALUES(?,?,?,?,?,?,?,?)',
+                        ('unprojected', '', '', 'code', 1, pins['isolated'], 'unprojected', body_by_name['isolated']))
+            con.commit()
+        nodes['skill:isolated'] = {'t': 'skill', 'n': 'isolated', 'ch': pins['isolated']}
+        nodes['skill:stale-pin'] = {'t': 'skill', 'n': 'stale-pin', 'ch': pins['alpha']}
+        nodes['skill:removed'] = {'t': 'skill', 'n': 'removed', 'ch': pins['isolated']}
+        nodes['secret:unlisted'] = {'t': 'secret', 'n': 'unlisted'}
+        concepts = {
+            'cap:test-review': {'n': 2, 'label': 'test review'},
+            'tool:lint': {'n': 2, 'label': 'lint'},
+            'dom:quality': {'n': 1, 'label': 'quality'},
+            'dep:runner': {'n': 1, 'label': 'runner'},
+            'ext:formats': {'n': 1, 'label': 'formats'},
+            'secret:unlisted': {'n': 1, 'label': 'unlisted'},
+        }
+        edges = [
+            ('skill:alias', 'skill:alpha', 'alias_of', 'index:aliases'),
+            ('prompt:alias', 'prompt:alpha', 'alias_of', 'index:aliases'),
+            ('prompt:alpha', 'cap:test-review', 'provides', 'authored:tags'),
+            ('skill:alpha', 'cap:test-review', 'provides', 'authored:tags'),
+            ('skill:alpha', 'tool:lint', 'requires_tool', 'authored:allowed-tools'),
+            ('skill:alpha', 'tool:lint', 'provides', 'authored:tags'),
+            ('skill:alpha', 'dom:quality', 'specializes', 'authored:domain'),
+            ('skill:alpha', 'dep:runner', 'depends_on', 'authored:depends-on'),
+            ('skill:alpha', 'ext:formats', 'depends_on', 'authored:requires'),
+            ('skill:alpha', 'skill:removed', 'depends_on', 'authored:depends-on'),
+            ('skill:alpha', 'skill:absent', 'depends_on', 'authored:depends-on'),
+            ('skill:alpha', 'secret:unlisted', 'depends_on', 'authored:requires'),
+            ('skill:stale-pin', 'tool:lint', 'requires_tool', 'authored:allowed-tools'),
+        ]
+        for i in range(capability_fanout):
+            ident = f'cap:review-{i:03d}'
+            concepts[ident] = {'n': 1, 'label': f'review {i:03d}'}
+            edges.append(('skill:alpha', ident, 'provides', 'authored:tags'))
+        path = self.root / GRAPH
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({
+            'built_at': timestamp,
+            'nodes': nodes,
+            'concepts': concepts,
+            'edges': [{'s': src, 'd': dst, 'r': relation, 'src': evidence, 'class': 'authored'}
+                      for src, dst, relation, evidence in edges],
+        }), encoding='utf-8')
+        return path
+
+    def test_graph_typed_context_counts_and_projection_boundaries(self):
+        projection = self.write_graph_fixture()
+        before = tuple(path.read_bytes() for path in (self.app.catalog, projection))
+        with patch.object(self.app.sources, 'route_task', side_effect=AssertionError('graph routed a task')), \
+             patch.object(self.app.sources, 'semantic_search', side_effect=AssertionError('graph called semantic search')):
+            graph = self.app.get('graph', {'type': 'prompt', 'q': 'alpha'})['data']
+            skill = self.app.get('graph', {'type': 'skill', 'q': 'alpha'})['data']
+            catalog = self.app.get('graph', {'type': 'skill'})['data']
+            prompts = self.app.get('graph', {'type': 'prompt'})['data']
+        self.assertEqual(before, tuple(path.read_bytes() for path in (self.app.catalog, projection)))
+        self.assertEqual(graph['total'], 1)
+        nodes = {node['id']: node for node in graph['nodes']}
+        self.assertEqual({key: node['role'] for key, node in nodes.items()}, {
+            'prompt:alpha': 'match', 'cap:test-review': 'context',
+        })
+        self.assertEqual(nodes['cap:test-review']['type'], 'capability')
+        self.assertEqual(nodes['cap:test-review']['label'], 'test review')
+        self.assertEqual(nodes['cap:test-review']['metadata']['namespace'], 'cap')
+        self.assertTrue(nodes['cap:test-review']['metadata']['provenance'])
+        self.assertEqual((nodes['prompt:alpha']['degree'], nodes['prompt:alpha']['visible_degree']), (2, 1))
+        edge, = graph['edges']
+        self.assertEqual((edge['source'], edge['target'], edge['type']), ('prompt:alpha', 'cap:test-review', 'provides'))
+        self.assertEqual(edge['evidence'], {
+            'source': 'authored:tags', 'class': 'authored', 'projection_built_at': '2025-01-01T00:00:00Z',
+        })
+        full, matched, visible = (graph['counts'][key] for key in ('full', 'matched', 'visible'))
+        self.assertEqual((full['nodes'], full['edges'], full['isolated_nodes'], full['unknown_nodes']), (13, 8, 1, 3))
+        self.assertEqual((matched['nodes'], matched['edges'], matched['isolated_nodes']), (1, 2, 0))
+        self.assertEqual((visible['nodes'], visible['edges'], visible['isolated_nodes'], visible['context_nodes']), (2, 1, 0, 1))
+        self.assertEqual(full['by_type'], {'skill': 5, 'prompt': 3, 'capability': 1, 'tool': 1, 'concept': 3})
+        self.assertEqual({node['id']: node['type'] for node in skill['nodes'] if node['role'] == 'context'}, {
+            'cap:test-review': 'capability', 'tool:lint': 'tool', 'dom:quality': 'concept',
+            'dep:runner': 'concept', 'ext:formats': 'concept',
+        })
+        self.assertEqual({edge['target'] for edge in skill['edges']}, {
+            'cap:test-review', 'tool:lint', 'dom:quality', 'dep:runner', 'ext:formats',
+        })
+        self.assertEqual({node['id']: node['isolated'] for node in catalog['nodes'] if node['role'] == 'match'}, {
+            'skill:alias': False, 'skill:alpha': False, 'skill:isolated': True,
+            'skill:catalog-only': None, 'skill:stale-pin': None,
+        })
+        self.assertEqual({node['id'] for node in prompts['nodes'] if node['role'] == 'match'},
+                         {'prompt:alpha', 'prompt:alias', 'prompt:unprojected'})
+        self.assertEqual(prompts['counts']['matched']['edges'], 2)
+
+    def test_graph_uses_indexed_authored_category_provenance_only(self):
+        self.write_graph_fixture()
+        with closing(sqlite3.connect(self.app.catalog)) as con:
+            con.execute('ALTER TABLE skills ADD COLUMN category_state TEXT')
+            con.execute('ALTER TABLE skills ADD COLUMN category_provenance TEXT')
+            authored = json.dumps({'sources': {'metadata.category': ['Indexed category']}})
+            inferred = json.dumps({'sources': {'metadata.category': ['Inferred category']}})
+            con.executemany(
+                'UPDATE skills SET category_canonical=?, category_state=?, category_provenance=? WHERE name=?',
+                (
+                    ('Indexed category', 'AUTHORED', authored, 'catalog-only'),
+                    ('Inferred category', 'INFERRED', inferred, 'alpha'),
+                    ('Missing source', 'AUTHORED', '{}', 'isolated'),
+                ),
+            )
+            con.commit()
+
+        graph = self.app.get('graph', {'type': 'capability', 'q': 'category'})['data']
+        self.assertEqual({node['id']: node['role'] for node in graph['nodes']}, {
+            'cap:indexed-category': 'match', 'skill:catalog-only': 'context',
+        })
+        edge, = graph['edges']
+        self.assertEqual((edge['source'], edge['target'], edge['type']),
+                         ('skill:catalog-only', 'cap:indexed-category', 'specializes'))
+        self.assertEqual(edge['evidence'], {
+            'source': 'authored:metadata.category', 'class': 'authored', 'projection_built_at': None,
+        })
+        unmatched = self.app.get('graph', {'type': 'capability', 'q': 'missing source'})['data']
+        self.assertEqual(unmatched['nodes'], [])
+
+    def test_graph_focus_crosses_types_and_keeps_root_on_later_pages(self):
+        self.write_graph_fixture()
+        params = {'node_id': 'cap:test-review', 'type': 'prompt', 'q': 'no match'}
+        zero = self.app.get('graph', dict(params, depth='0'))['data']
+        self.assertEqual([node['id'] for node in zero['nodes']], ['cap:test-review'])
+        self.assertEqual(zero['edges'], [])
+        self.assertIs(zero['nodes'][0]['isolated'], False)
+        direct = self.app.get('graph', dict(params, depth='1'))['data']
+        self.assertEqual({node['id'] for node in direct['nodes']}, {'cap:test-review', 'skill:alpha', 'prompt:alpha'})
+        self.assertEqual({edge['source'] for edge in direct['edges']}, {'skill:alpha', 'prompt:alpha'})
+        two_hops = self.app.get('graph', dict(params, depth='2'))['data']
+        self.assertIn('prompt:alias', {node['id'] for node in two_hops['nodes']})
+        projected_alias = next(edge for edge in two_hops['edges'] if edge['source'] == 'prompt:alias')
+        self.assertEqual(projected_alias['evidence']['source'], 'index:aliases')
+        self.assertIn('tool:lint', {node['id'] for node in two_hops['nodes']})
+        direct_skill = self.app.get('graph', {'node_id': 'skill:alpha', 'depth': '1'})['data']
+        self.assertIn('cap:test-review', {node['id'] for node in direct_skill['nodes']})
+
+        later = self.app.get('graph', dict(params, depth='1', offset='1', limit='1'))['data']
+        self.assertEqual(later['node_id'], 'cap:test-review')
+        self.assertEqual(later['nodes'][0]['id'], 'cap:test-review')
+        self.assertEqual(len(later['nodes']), 2)
+        self.assertEqual(len(later['edges']), 1)
+        missing = self.app.get('graph', {'node_id': 'skill:removed'})['data']
+        self.assertEqual(missing['nodes'], [])
+        self.assertEqual(missing['edges'], [])
+
+    def test_graph_http_bounds_cross_type_context(self):
+        self.write_graph_fixture(capability_fanout=105)
+        with ThreadingHTTPServer(('127.0.0.1', 0), Handler) as server:
+            server.app = self.app
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                for suffix, expected in (('', 40), ('&neighbor_limit=999', 100)):
+                    with self.subTest(neighbor_limit=expected), closing(
+                        http.client.HTTPConnection('127.0.0.1', server.server_port, timeout=3)
+                    ) as conn:
+                        conn.request('GET', '/api/v1/graph?type=skill&q=alpha&limit=1' + suffix)
+                        response = conn.getresponse()
+                        self.assertEqual(response.status, 200)
+                        page = json.loads(response.read())['data']
+                    self.assertEqual(page['total'], 1)
+                    self.assertIsNone(page['next_offset'])
+                    self.assertEqual(page['counts']['visible']['context_nodes'], expected)
+                    self.assertEqual(len(page['nodes']), expected + 1)
+                    self.assertEqual(len(page['edges']), expected)
+            finally:
+                server.shutdown()
+                thread.join(timeout=3)
+
+    def test_library_excludes_sensitive_documents(self):
         docs=self.root/'skill-hub/instructions'; docs.mkdir(parents=True)
         (docs/'guide.md').write_text('Useful instructions')
         (docs/'POLICY.md').write_text('CONFIDENTIAL')

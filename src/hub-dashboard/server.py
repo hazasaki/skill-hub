@@ -361,7 +361,7 @@ class Dashboard:
             elif module=='graph':
                 data,sources=self.sources.graph(q)
                 status='partial'
-                limits.append('Graph projection and native installed-skill evidence only. External concept/tool nodes excluded; no fabricated project or runtime grants.')
+                limits.append('Read-only graph. Edges represent projection, catalog alias, or observed installed-skill evidence. Graph links never grant runtime access.')
             elif module=='catalog-quality':
                 receipt = getattr(self, 'catalog_quality_receipt', self.catalog.parent/'catalog-quality.json')
                 data = read_catalog_quality(self.catalog, receipt, q, public_text)

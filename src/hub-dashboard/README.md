@@ -55,9 +55,51 @@ Body output is capped at 262144 characters after masking complete source structu
 strings are redacted. Render as text, never HTML. No URL/file-path resource reads.
 Resource version is the catalog body hash; dependencies are unknown.
 
-Graph returns bounded catalog nodes and only evidenced alias_of edges whose
-endpoints are both in the page. No inferred skill grants or host binding edges.
-Routing partitions route IDs by native/Docker source. Events use the observer's
+**Capability graph.** `GET /api/v1/graph` returns the catalog read model and
+recorded relationships. It does not call the router or change content, tool
+availability, or permissions.
+
+| Query parameter | Behavior |
+| --- | --- |
+| `type` | Match `skill`, `prompt`, `agent`, `mcp`, `project`, `capability`, `tool`, `concept`, or `all` (default). |
+| `q` | Case-insensitive substring of the ID or display label, up to 200 characters. Search covers all matching nodes. |
+| `limit`, `offset` | Page of 1–200 matches, starting at offset 0. Browse orders linked nodes first, then label and ID. Apply `next_offset` unchanged until it is null. Reset offset when the query changes. |
+| `neighbor_limit` | Up to 100 additional context nodes (default 40, 0 to disable). Browse shows direct neighbors of a different type. |
+| `node_id`, `depth` | Focus on an exact ID, ignoring `type` and `q`. Traverse incoming and outgoing edges to depth 0–3 (default 1). The root stays first on later pages. Context can include intermediate nodes that connect the page to the root. An unknown ID returns an empty view. |
+
+`nodes`, `edges`, `total`, and `truncated` remain available. `total` counts
+matches, and each node's `role` identifies a `match` or `context` node.
+`truncated` can reflect additional matches, the context budget, or the
+500-edge response limit. Context nodes do not advance the page offset.
+
+- `counts.full` describes the complete read model. `counts.matched` covers
+  all matches before paging and counts each edge touching a match once.
+  `counts.visible` describes the actual response, including `context_nodes`
+  and `no_visible_edges`. Each includes node and edge totals, `by_type`,
+  `isolated_nodes`, and `unknown_nodes`.
+- `degree` counts all incident edges in the read model. `visible_degree`
+  uses the returned edge list. `isolated` is true for a resource observed in
+  the projection with zero recorded edges, false with a recorded edge,
+  and null if relationship coverage is unavailable for a zero-degree node.
+- Typed targets retain their ID namespaces. `cap:` is a capability, `tool:`
+  is a tool declaration, and `dom:`, `dep:`, and `ext:` are concepts or
+  declared requirements. Each exposes `metadata.namespace` and
+  `metadata.provenance`. The edge carries its recorded relationship,
+  evidence source, class, and projection timestamp when available. A typed
+  declaration does not establish that a tool is installed or a dependency resolved.
+- When an indexed resource has an authored nested `metadata.category`, the
+  catalog's recorded declaration contributes a `specializes` edge. Its
+  evidence source is `authored:metadata.category` and its projection timestamp
+  is null. The reader excludes inferred categories and derived tags.
+- The SQLite catalog supplies current resource identities. A known hash
+  mismatch disables the stale projected edges. Without a readable
+  projection, the catalog stays searchable and its recorded aliases and
+  authored nested categories remain available. Without a readable catalog,
+  the graph can still show the projection snapshot. See the response's
+  `sources` for availability. Native installed-skill observations remain
+  separately identified.
+
+**Routing.** The observer partitions route IDs by native/Docker source. Events use the observer's
 allowlist sanitizer in observer_read.py, 1200 per
 source and a merged cap of 1200; route grouping caps at 20 per source.
 Recorded metadata only: no task text, gold labels, raw error/log payloads.

@@ -15,6 +15,7 @@ import urllib.parse
 import tomllib
 from types import CodeType
 from observer_read import connect_ro
+from graph_read import catalog_rows, graph_data, parse_projection
 from security_review import CREDENTIAL_RE, credential_review, execution_review, _reference_spans, _is_value_reference, _ENV_RE, _PLACEHOLDER_RE, _VALUE_RE
 from credential_mask import CREDENTIAL_RULE_VERSION,mask_credentials,structured_credential_spans,URL_USERINFO_RE,XML_TAG_RE,XML_ATTRIBUTE_RE,XML_CREDENTIAL_NAME_RE
 
@@ -913,50 +914,23 @@ class Sources:
         import hashlib
         return hashlib.sha256(raw).hexdigest()
     def graph(self,q):
-        path=self.app.project/GRAPH
-        graph_sources=[self.source('capability-graph-projection',path)]
-        try: raw=read_json(path,24000000)
-        except OSError:
-            # Browse the catalog index even when no prebuilt graph projection was mounted.
-            raw={'nodes':{},'edges':[]}
-            with closing(connect_ro(self.app.catalog)) as con:
-                for kind,table in (('skill','skills'),('prompt','prompts')):
-                    rows=con.execute(f'SELECT name,body_sha256,canonical_name FROM {table}')
-                    for name,version,canonical in rows:
-                        label=self.clean(name)
-                        ident=kind+':'+label
-                        raw['nodes'][ident]={'t':kind,'n':label,'ch':self.clean(version) if isinstance(version,str) else version}
-                        if canonical and canonical!=name:
-                            raw['edges'].append({'s':ident,'d':kind+':'+self.clean(canonical),'r':'alias_of','src':'catalog canonical_name'})
-            graph_sources.append(self.source('catalog',self.app.catalog))
-
-        all_nodes={k:{'id':k,'type':v['t'],'label':self.clean(v.get('n',k)),'status':'projected','metadata':{'version':v.get('ch'),'observed_at':v.get('obs')}} for k,v in raw.get('nodes',{}).items() if v.get('t') in ('skill','prompt','agent','mcp','project')}
-        edges=[{'id':str(i),'source':e['s'],'target':e['d'],'type':e['r'],'evidence':{'source':e.get('src'),'class':e.get('class'),'projection_built_at':raw.get('built_at')}} for i,e in enumerate(raw.get('edges',[])[:100000]) if e.get('s') in all_nodes and e.get('d') in all_nodes]
-        agents,agent_sources=self.agents({'limit':'100'}); integrations,mcp_sources=self.integrations()
-        for a in agents['items']:
-            ident='agent:'+a['id']; all_nodes[ident]={'id':ident,'type':'agent','label':a['name'],'status':a['status'],'metadata':{'model':a['model'],'runtime':a['runtime']}}
-            for skill in a.get('skills') or []:
-                target='skill:'+skill
-                if target in all_nodes: edges.append({'id':ident+'->'+target,'source':ident,'target':target,'type':'installed_skill','evidence':'native agent .agents/skills directory'})
-        for m in integrations['items']:
-            ident='mcp:'+m['id']; all_nodes[ident]={'id':ident,'type':'mcp','label':m['name'],'status':m['status'],'metadata':{'enabled':m.get('enabled')}}
-        selected=q.get('node_id'); types=q.get('type','all'); query=q.get('q','').lower()[:200]
-        limit=max(1,min(200,int(q.get('limit',100))))
-        if selected:
-            candidates=[selected] if selected in all_nodes else []
-            chosen=set(candidates)
-            frontier=chosen.copy()
-            for _ in range(max(0,min(3,int(q.get('depth',1))))):
-                frontier={e[k] for e in edges if e['source'] in frontier or e['target'] in frontier for k in ('source','target')} - chosen
-                if not frontier: break
-                chosen.update(frontier)
-                candidates.extend(sorted(frontier))
-        else:
-            # Prefer evidenced dependencies so initial graph has meaningful connected nodes.
-            candidates=list(dict.fromkeys([e[k] for e in edges for k in ('source','target')]+sorted(all_nodes)))
-        candidates=[k for k in candidates if (types=='all' or all_nodes[k]['type']==types) and query in all_nodes[k]['label'].lower()]
-        chosen=set(candidates[:limit]); visible=[e for e in edges if e['source'] in chosen and e['target'] in chosen][:500]
-        return {'nodes':[all_nodes[k] for k in candidates[:limit]],'edges':visible,'truncated':len(candidates)>limit or len(visible)==500,'total':len(candidates)},graph_sources+agent_sources+mcp_sources
+        path=getattr(self, "graph_projection", self.app.project/GRAPH)
+        projection_source=self.source('capability-graph-projection',path)
+        catalog_source=self.source('catalog',self.app.catalog,'sqlite')
+        try:
+            raw=parse_projection(read_json(path,24000000))
+        except (OSError,ValueError):
+            raw={}
+            projection_source['status']='unavailable'
+        try:
+            catalog=catalog_rows(self.app.catalog)
+        except (OSError,sqlite3.Error):
+            catalog=None
+            catalog_source['status']='unavailable'
+        agents,agent_sources=self.agents({'limit':'100'})
+        integrations,mcp_sources=self.integrations()
+        data=graph_data(raw,catalog,agents['items'],integrations['items'],q,self.clean)
+        return data,[projection_source,catalog_source]+agent_sources+mcp_sources
     def _load_quality_dispositions(self):
         try:
             path=self.app.owned_target('quality-dispositions')
