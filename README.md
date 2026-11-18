@@ -2,6 +2,18 @@
 
 Skill Hub is a local catalog for reusable AI skills and prompts. Browse the catalog in a web dashboard, or connect an MCP client to search and load instructions on demand. The Docker build includes Rust libraries for file-reference scanning, metadata matching, and similarity scoring.
 
+![Skill Hub architecture: source files, catalog, access and use](docs/assets/architecture.svg)
+
+## Repository map
+
+| Directory | Responsibility |
+| --- | --- |
+| [deploy/skill-hub](deploy/skill-hub) | MCP service, catalog, resource loading and Rust helpers |
+| [src/hub-dashboard](src/hub-dashboard) | Dashboard API and browser interface |
+| [deploy/hub-dashboard](deploy/hub-dashboard) | Dashboard container and startup configuration |
+| [examples/hub](examples/hub) | Runnable sample skill and prompt |
+| [scripts](scripts) | MCP quickstart checks |
+
 ## Run locally
 
 Install Docker with Compose v2.20.0 or later. From a terminal:
@@ -38,6 +50,10 @@ docker compose up -d --force-recreate
 ## Tiếng Việt
 
 Cài Docker có Compose v2.20.0 trở lên, tải repo và chạy ba lệnh trong mục **Run locally**. Mở dashboard ở cổng **8769**, hoặc kết nối ứng dụng MCP với đường dẫn **/mcp** ở cổng **8765**. Bạn có thể thêm skill và prompt theo mẫu trong `examples/hub`, rồi chạy lại lệnh dựng catalog ở trên.
+
+## Credits
+
+Codex contributed to implementation, regression testing, architecture documentation and release preparation.
 
 ## License
 
