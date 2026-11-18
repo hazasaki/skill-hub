@@ -1,8 +1,12 @@
+<img src="docs/assets/skill-hub.png" width="88" height="88" alt="Skill Hub logo">
+
 # Skill Hub
 
-Skill Hub is a local catalog for reusable AI skills and prompts. Browse the catalog in a web dashboard, or connect an MCP client to search and load instructions on demand. The Docker build includes Rust libraries for file-reference scanning, metadata matching, and similarity scoring.
+Skill Hub gives an AI agent a local catalog of reusable skills and prompts. Browse the catalog in the dashboard, or let an MCP client describe a task and choose which instructions to load.
 
-![Skill Hub architecture: source files, catalog, access and use](docs/assets/architecture.svg)
+![Skill Hub routing flow from catalog lookup to verified delivery](docs/assets/architecture.svg)
+
+With model routing configured, `route_task` returns a menu of matching resources. The agent can skip the menu or request an entry with `load_resource_choice`, passing the ID and hashes from the menu. The Hub checks permissions, dependencies and content hashes before returning the selected instructions. Direct catalog browsing also works without a model provider.
 
 [Release notes](CHANGELOG.md) · [Provider setup](deploy/skill-hub/README.md)
 

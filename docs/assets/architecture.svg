@@ -1,2 +1,43 @@
 <?xml version='1.0' encoding='utf-8'?>
-<svg aria-labelledby="title desc" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 330" role="img"><title id="title">Skill Hub architecture</title><desc id="desc">Authored skills and prompts feed a local catalog. The dashboard and MCP clients read the catalog and receive resources.</desc><rect x="0" y="0" width="960" height="330" rx="12" fill="#102631" /><text font-family="system-ui, sans-serif" font-size="31" x="32" y="46" fill="#eaf3f3">Skill Hub</text><text font-family="system-ui, sans-serif" font-size="17" x="32" y="77" fill="#acc4ca">From authored files to instructions an agent can use</text><rect x="32" y="110" width="200" height="165" rx="12" fill="#20414c" /><text font-family="system-ui, sans-serif" font-size="22" x="47" y="146" fill="#9fe6cf">Source files</text><text font-family="system-ui, sans-serif" font-size="14" x="47" y="179" fill="#eaf3f3">Skill directories</text><text font-family="system-ui, sans-serif" font-size="14" x="47" y="205" fill="#eaf3f3">Prompt documents</text><text font-family="system-ui, sans-serif" font-size="14" x="47" y="231" fill="#eaf3f3">Supporting files</text><text font-family="system-ui, sans-serif" font-size="22" x="236" y="201" fill="#9fe6cf">→</text><rect x="264" y="110" width="200" height="165" rx="12" fill="#20414c" /><text font-family="system-ui, sans-serif" font-size="22" x="279" y="146" fill="#9fe6cf">Catalog</text><text font-family="system-ui, sans-serif" font-size="14" x="279" y="179" fill="#eaf3f3">Index on startup</text><text font-family="system-ui, sans-serif" font-size="14" x="279" y="205" fill="#eaf3f3">SQLite + full-text search</text><text font-family="system-ui, sans-serif" font-size="14" x="279" y="231" fill="#eaf3f3">Resource identity</text><text font-family="system-ui, sans-serif" font-size="22" x="468" y="201" fill="#9fe6cf">→</text><rect x="496" y="110" width="200" height="165" rx="12" fill="#20414c" /><text font-family="system-ui, sans-serif" font-size="22" x="511" y="146" fill="#9fe6cf">Access</text><text font-family="system-ui, sans-serif" font-size="14" x="511" y="179" fill="#eaf3f3">Dashboard on :8769</text><text font-family="system-ui, sans-serif" font-size="14" x="511" y="205" fill="#eaf3f3">MCP on :8765/mcp</text><text font-family="system-ui, sans-serif" font-size="14" x="511" y="231" fill="#eaf3f3">List, search and load</text><text font-family="system-ui, sans-serif" font-size="22" x="700" y="201" fill="#9fe6cf">→</text><rect x="728" y="110" width="200" height="165" rx="12" fill="#20414c" /><text font-family="system-ui, sans-serif" font-size="22" x="743" y="146" fill="#9fe6cf">Use</text><text font-family="system-ui, sans-serif" font-size="14" x="743" y="179" fill="#eaf3f3">Inspect the resource</text><text font-family="system-ui, sans-serif" font-size="14" x="743" y="205" fill="#eaf3f3">Read its full instructions</text><text font-family="system-ui, sans-serif" font-size="14" x="743" y="231" fill="#eaf3f3">Apply and verify</text><text font-family="system-ui, sans-serif" font-size="15" x="32" y="307" fill="#acc4ca">Local quickstart  /  Docker Compose  /  read-only content mounts</text></svg>
+<svg aria-labelledby="title desc" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 560" role="img">
+  <title id="title">How Skill Hub routes a task</title>
+  <desc id="desc">Skills and prompts feed a SQLite catalog. The Hub retrieves candidates and ranks them with the configured decision model. The agent receives a menu and can finish or request selected entries. The Hub checks permissions, dependencies and hashes before delivering content.</desc>
+  <rect width="940" height="560" rx="22" fill="#171631" />
+  <text x="36" y="53" font-family="system-ui, sans-serif" font-size="32" font-weight="650" fill="#f1f0ff">How a task reaches the right instructions</text>
+  <rect x="36" y="94" width="250" height="118" rx="12" fill="#292748" stroke="#575378" />
+  <text x="52" y="129" font-family="system-ui, sans-serif" font-size="22" font-weight="650" fill="#9df1d1">Content library</text>
+  <text x="52" y="162" font-family="system-ui, sans-serif" font-size="17" font-weight="400" fill="#f1f0ff">Skill folders and prompts</text>
+  <text x="52" y="187" font-family="system-ui, sans-serif" font-size="17" font-weight="400" fill="#f1f0ff">Read-only content mount</text>
+  <rect x="345" y="94" width="250" height="118" rx="12" fill="#292748" stroke="#575378" />
+  <text x="361" y="129" font-family="system-ui, sans-serif" font-size="22" font-weight="650" fill="#9df1d1">Local catalog</text>
+  <text x="361" y="162" font-family="system-ui, sans-serif" font-size="17" font-weight="400" fill="#f1f0ff">SQLite index</text>
+  <text x="361" y="187" font-family="system-ui, sans-serif" font-size="17" font-weight="400" fill="#f1f0ff">Find candidate resources</text>
+  <rect x="654" y="94" width="250" height="118" rx="12" fill="#292748" stroke="#575378" />
+  <text x="670" y="129" font-family="system-ui, sans-serif" font-size="22" font-weight="650" fill="#9df1d1">Task routing</text>
+  <text x="670" y="162" font-family="system-ui, sans-serif" font-size="17" font-weight="400" fill="#f1f0ff">Rank for the task</text>
+  <text x="670" y="187" font-family="system-ui, sans-serif" font-size="17" font-weight="400" fill="#f1f0ff">Return IDs and hashes</text>
+  <rect x="654" y="300" width="250" height="118" rx="12" fill="#292748" stroke="#575378" />
+  <text x="670" y="335" font-family="system-ui, sans-serif" font-size="22" font-weight="650" fill="#9df1d1">Agent or dashboard</text>
+  <text x="670" y="368" font-family="system-ui, sans-serif" font-size="17" font-weight="400" fill="#f1f0ff">Inspect the menu</text>
+  <text x="670" y="393" font-family="system-ui, sans-serif" font-size="17" font-weight="400" fill="#f1f0ff">Choose zero or more</text>
+  <rect x="345" y="300" width="250" height="118" rx="12" fill="#292748" stroke="#575378" />
+  <text x="361" y="335" font-family="system-ui, sans-serif" font-size="22" font-weight="650" fill="#9df1d1">Verified load</text>
+  <text x="361" y="368" font-family="system-ui, sans-serif" font-size="17" font-weight="400" fill="#f1f0ff">Check access and deps</text>
+  <text x="361" y="393" font-family="system-ui, sans-serif" font-size="17" font-weight="400" fill="#f1f0ff">Match the pinned hashes</text>
+  <rect x="36" y="300" width="250" height="118" rx="12" fill="#292748" stroke="#575378" />
+  <text x="52" y="335" font-family="system-ui, sans-serif" font-size="22" font-weight="650" fill="#9df1d1">Resource contents</text>
+  <text x="52" y="368" font-family="system-ui, sans-serif" font-size="17" font-weight="400" fill="#f1f0ff">Return original text</text>
+  <text x="52" y="393" font-family="system-ui, sans-serif" font-size="17" font-weight="400" fill="#f1f0ff">Agent applies instructions</text>
+  <path d="M 286 153 h 48" fill="none" stroke="#a99cff" stroke-width="3" />
+  <polygon points="331,147 341,153 331,159" fill="#a99cff" />
+  <path d="M 595 153 h 48" fill="none" stroke="#a99cff" stroke-width="3" />
+  <polygon points="640,147 650,153 640,159" fill="#a99cff" />
+  <path d="M 779 212 v 76" fill="none" stroke="#a99cff" stroke-width="3" />
+  <polygon points="773,285 779,296 785,285" fill="#a99cff" />
+  <path d="M 654 359 h -48" fill="none" stroke="#a99cff" stroke-width="3" />
+  <polygon points="609,353 599,359 609,365" fill="#a99cff" />
+  <path d="M 345 359 h -48" fill="none" stroke="#a99cff" stroke-width="3" />
+  <polygon points="300,353 290,359 300,365" fill="#a99cff" />
+  <text x="36" y="478" font-family="system-ui, sans-serif" font-size="22" font-weight="650" fill="#f1f0ff">Choosing zero ends the request without loading content.</text>
+  <text x="36" y="518" font-family="system-ui, sans-serif" font-size="18" font-weight="400" fill="#bebbd6">Direct catalog search works locally. Model-assisted ranking uses the configured provider.</text>
+</svg>
