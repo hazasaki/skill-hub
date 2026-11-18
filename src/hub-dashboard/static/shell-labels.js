@@ -262,7 +262,7 @@ window.skillHubLabels = {
   "Catalog page size (resource_limit)": "Giới hạn Tài nguyên (resource_limit)",
   "Catalog pagination (1–100). Default: 50": "Phân trang danh mục (1..100). Mặc định: 50",
   "Graph size limit (graph_limit)": "Giới hạn Sơ đồ (graph_limit)",
-  "Graph nodes per page (1–200). Default: 100": "Số node sơ đồ năng lực (1..200). Mặc định: 100",
+  "Catalog API page limit. Dashboard graph pages show up to 24 matches.": "Giới hạn mỗi trang API danh mục. Sơ đồ hiển thị tối đa 24 mục khớp mỗi trang.",
   "Routing source (routing_source)": "Nguồn Điều hướng (routing_source)",
   "All sources (all)": "Tất cả nguồn (all)",
   "Native only (native)": "Chỉ Native (native)",

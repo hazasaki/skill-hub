@@ -288,6 +288,9 @@
                   <option value="agent" data-graph-copy="agent">Agent</option>
                   <option value="mcp" data-graph-copy="mcp">MCP server</option>
                   <option value="project" data-graph-copy="project">Project</option>
+                  <option value="capability" data-graph-copy="capability">Capability</option>
+                  <option value="concept" data-graph-copy="concept">Concept</option>
+                  <option value="tool" data-graph-copy="tool">Tool</option>
                 </select>
               </label>
               <label class="graph-field">
@@ -309,7 +312,19 @@
               </div>
             </div>
           </div>
-          <p id="graph-stats" class="graph-status" role="status">Loading capability graph…</p>
+          <div class="graph-result-bar">
+            <p id="graph-stats" class="graph-status" role="status">Loading capability graph…</p>
+            <form id="graph-pagination" class="graph-pagination" aria-label="Result pages" data-graph-label="pagination" hidden>
+              <button type="button" id="graph-page-prev" class="btn btn-subtle" data-graph-copy="pagePrev" aria-disabled="true">Previous</button>
+              <div class="graph-page-jump">
+                <label for="graph-page-number" data-graph-copy="pageNumber">Page</label>
+                <input type="number" id="graph-page-number" class="form-control form-control-sm" min="1" value="1" required>
+                <button type="submit" id="graph-page-go" class="btn btn-subtle" data-graph-copy="pageGo">Go</button>
+              </div>
+              <button type="button" id="graph-page-next" class="btn btn-subtle" data-graph-copy="pageNext" aria-disabled="true">Next</button>
+              <output id="graph-page-text" class="graph-muted" for="graph-page-number" aria-live="off"></output>
+            </form>
+          </div>
           <button type="button" id="graph-retry" class="btn btn-secondary" data-graph-copy="retry" hidden>Retry</button>
           <div id="graph-results" hidden>
             <div class="graph-visual">
@@ -339,9 +354,13 @@
                 <ul id="graph-node-list" class="graph-node-list" aria-label="Graph results" data-graph-label="resultList"></ul>
               </div>
               <div class="graph-key" role="group" aria-label="Relationship legend" data-graph-label="legend">
-                <span><i class="graph-key-swatch alias" aria-hidden="true"></i><span data-graph-copy="alias_of">Alias → canonical resource</span></span>
-                <span><i class="graph-key-swatch install" aria-hidden="true"></i><span data-graph-copy="installed_skill">Agent → installed skill</span></span>
-                <span><i class="graph-key-swatch" aria-hidden="true"></i><span data-graph-copy="other">Other recorded relationship</span></span>
+                <span><svg class="graph-key-swatch" viewBox="0 0 24 6" aria-hidden="true"><path class="graph-key-line alias_of" d="M0 3H24"/></svg><span data-graph-copy="alias_of">Alias &rarr; canonical resource</span></span>
+                <span><svg class="graph-key-swatch" viewBox="0 0 24 6" aria-hidden="true"><path class="graph-key-line installed_skill" d="M0 3H24"/></svg><span data-graph-copy="installed_skill">Agent &rarr; installed skill</span></span>
+                <span><svg class="graph-key-swatch" viewBox="0 0 24 6" aria-hidden="true"><path class="graph-key-line provides" d="M0 3H24"/></svg><span data-graph-copy="provides">Provides capability</span></span>
+                <span><svg class="graph-key-swatch" viewBox="0 0 24 6" aria-hidden="true"><path class="graph-key-line specializes" d="M0 3H24"/></svg><span data-graph-copy="specializes">Specializes capability</span></span>
+                <span><svg class="graph-key-swatch" viewBox="0 0 24 6" aria-hidden="true"><path class="graph-key-line uses_tool" d="M0 3H24"/></svg><span data-graph-copy="toolLink">Tool relationship</span></span>
+                <span><svg class="graph-key-swatch" viewBox="0 0 24 6" aria-hidden="true"><path class="graph-key-line depends_on" d="M0 3H24"/></svg><span data-graph-copy="depends_on">Depends on</span></span>
+                <span><svg class="graph-key-swatch" viewBox="0 0 24 6" aria-hidden="true"><path class="graph-key-line other" d="M0 3H24"/></svg><span data-graph-copy="other">Other recorded relationship</span></span>
               </div>
             </div>
             <aside class="graph-visual graph-details" aria-labelledby="graph-details-heading">
@@ -1165,7 +1184,7 @@
                 <div class="form-group">
                   <label for="cfg-graph-limit"><strong>Graph size limit (graph_limit)</strong></label>
                   <input type="number" id="cfg-graph-limit" class="form-control" min="1" max="200" value="100" required>
-                  <small class="text-muted">Graph nodes per page (1–200). Default: 100</small>
+                  <small class="text-muted">Catalog API page limit. Dashboard graph pages show up to 24 matches.</small>
                 </div>
 
                 <div class="form-group">
