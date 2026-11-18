@@ -34,6 +34,8 @@ authorized step is what would let that decision control a real dispatch.
 """
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+
 import hashlib
 import json
 import re
@@ -602,6 +604,7 @@ SKILL_SCORE_THRESHOLD = 0.80
 PROMPT_SCORE_THRESHOLD = 0.75
 RETRY_BACKOFF_SECONDS = 0.2
 SCORING_BATCH_SIZE = 50
+_CARD_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix='route-card')
 # Chosen bodies are complete by default; a caller may supply a known transport budget.
 LOAD_BYTE_BUDGET = None
 
@@ -1126,7 +1129,7 @@ def run_multi(*, catalog_module, hub, query, approvals=None, transport=None, key
     """
     if not isinstance(batch_size, int) or isinstance(batch_size, bool) or batch_size < 1:
         raise ChainError('batch_size must be a positive integer')
-    if scoring_mode not in ('baseline', 'staged'):
+    if scoring_mode not in ('dynamic', 'baseline', 'staged'):
         raise ChainError('unknown scoring mode')
     staged = scoring_mode == 'staged'
     t_overall_start = time.perf_counter()
@@ -1211,12 +1214,28 @@ def run_multi(*, catalog_module, hub, query, approvals=None, transport=None, key
         explicit.append({'requested_id': identifier, 'resolved_id': candidate['id'], 'outcome': 'RESOLVED_FOR_SCORING'})
         if not any(e['id'] == candidate['id'] for e in entries):
             entries.append(candidate)
+    explicit_ids = {row['resolved_id'] for row in explicit if 'resolved_id' in row}
+    if scoring_mode == 'dynamic':
+        entries, retrieval['scoring_budget'] = preparation.dynamic_scoring_pool(
+            entries, query, engine_ranks, retrieval, explicit_ids)
+        admitted = {entry['id'] for entry in entries}
+        for row in explicit:
+            if 'resolved_id' in row and row['resolved_id'] not in admitted:
+                row['outcome'] = 'SCORING_BUDGET_EXCLUDED'
+        if len(entries) < retrieval['scoring_budget']['candidate_pool']:
+            retrieval['model_saw_full_catalog'] = False
+    elif not staged:
+        retrieval['scoring_budget'] = {
+            'mode': 'baseline', 'reason': 'LEGACY_PREPARED_POOL',
+            'candidate_pool': len(entries), 'admitted': len(entries),
+        }
     retrieval['explicit_resolution'] = explicit
+    card_started = time.perf_counter()
+    cards_timed_out = False
     if catalog_module is not None and hasattr(catalog_module, 'get'):
         from resource_card import build_card, render_card
-        for card_index, entry in enumerate(entries):
-            if clock() >= overall_deadline_at:
-                break
+
+        def read_card(entry):
             try:
                 source = (catalog_module.get(entry['resource_id'], hub, materialize=False)
                           if entry['type'] == 'skill' else catalog_module.get_prompt(entry['resource_id'], hub))
@@ -1224,22 +1243,38 @@ def run_multi(*, catalog_module, hub, query, approvals=None, transport=None, key
                         or (staged and entry['type'] == 'skill' and entry.get('bundle_sha256')
                             and source.get('bundle_sha256') != entry['bundle_sha256'])):
                     raise ValueError('CARD_SOURCE_CHANGED')
-                entry = dict(entry)
                 card = build_card(source)
-                entry['resource_card'] = card
-                entry['choice_metadata'] = source.get('metadata') or {}
-                entry['purpose_excerpt'] = entry.get('purpose_excerpt', '') + '\nAuthored routing card: ' + render_card(card)
-                entries[card_index] = entry
+                return {**entry, 'resource_card': card, 'choice_metadata': source.get('metadata') or {},
+                        'purpose_excerpt': entry.get('purpose_excerpt', '') + '\nAuthored routing card: ' + render_card(card)}, None
             except (KeyError, ValueError, OSError) as error:
-                retrieval.setdefault('card_errors', []).append({'id': entry['id'], 'error': type(error).__name__})
+                return entry, {'id': entry['id'], 'error': type(error).__name__}
+
+        # Bundle validation on the mounted catalog is I/O-bound. Keep ranked order
+        # independent of which read finishes first, and never materialize here.
+        remaining = overall_deadline_at - clock()
+        if entries and remaining > 0:
+            reads = _CARD_EXECUTOR.map(read_card, entries, timeout=remaining)
+            try:
+                for index, (entry, error) in enumerate(reads):
+                    entries[index] = entry
+                    if error:
+                        retrieval.setdefault('card_errors', []).append(error)
+            except TimeoutError:
+                cards_timed_out = True
+            finally:
+                reads.close()
+        elif entries:
+            cards_timed_out = True
     retrieval['cards'] = {e['id']: e['resource_card'] for e in entries if 'resource_card' in e}
-    retrieval['card_coverage'] = {'prepared': len(entries), 'derived': len(retrieval['cards']), 'scope': 'prepared candidates; pinned indexes unchanged'}
-    explicit_ids = {row['resolved_id'] for row in explicit if 'resolved_id' in row}
+    retrieval['card_coverage'] = {'prepared': len(entries), 'derived': len(retrieval['cards']),
+                                  'scope': 'prepared candidates; pinned indexes unchanged',
+                                  'elapsed_ms': round((time.perf_counter() - card_started) * 1000, 2),
+                                  'deadline_limited': cards_timed_out}
     entries, score_aliases = preparation.coalesce(entries, exact_cards=staged, explicit=explicit_ids)
     entries = preparation.interleave(entries)
     resolution_entries = entries + [alias for group in score_aliases.values() for alias in group]
     explicit_exclusions = [{'id': row['requested_id'], 'reason': row['outcome']}
-                           for row in explicit if 'resolved_id' not in row]
+                           for row in explicit if row['outcome'] != 'RESOLVED_FOR_SCORING']
     result = {'schema_version': 'openbot.elephant.route_multi.v1',
               'choice_pool': {'skills': [], 'prompts': [], 'excluded': explicit_exclusions},
               'catalog': catalog,
@@ -1456,6 +1491,8 @@ def run_multi(*, catalog_module, hub, query, approvals=None, transport=None, key
                      'request_sha256': request['request_sha256'],
                      'latency_ms': record.get('latency_ms'),
                      'attempts': record.get('attempts'),
+                     'model': model,
+                     **({'resolved_model': record['resolved_model']} if 'resolved_model' in record else {}),
                      'input_tokens': record.get('input_tokens'),
                      'revision_visibility': record.get('revision_visibility')})
         if errors >= max_model_errors:
@@ -1512,7 +1549,8 @@ def run_multi(*, catalog_module, hub, query, approvals=None, transport=None, key
     result['scores'] = dict(sorted(scores.items()))
     result['coverage']['scored'] = scored
     total = len(visible)
-    catalog_scored = sum(e['id'] in scores for e in visible) if staged else scored
+    catalog_scored = (sum(e['id'] in scores for e in visible)
+                      if scoring_mode != 'baseline' else scored)
     if staged:
         result['coverage']['catalog_scored'] = catalog_scored
     result['coverage']['unscored'] = total - catalog_scored
@@ -1524,7 +1562,8 @@ def run_multi(*, catalog_module, hub, query, approvals=None, transport=None, key
     result['coverage']['skills_scored'] = sum(name.startswith('skill:') for name in scores if name not in reused)
     result['coverage']['prompts_scored'] = sum(name.startswith('prompt:') for name in scores if name not in reused)
     covered_total = scored + len(reused)
-    model_saw_full = (all(e['id'] in scores for e in visible) if staged else covered_total >= total)
+    model_saw_full = (all(e['id'] in scores for e in visible)
+                      if scoring_mode != 'baseline' else covered_total >= total)
     result['coverage']['model_saw_full_catalog'] = (
         bool(visible) and all(e['id'] in live_scored for e in visible) if staged else model_saw_full)
     if staged:

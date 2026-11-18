@@ -6,6 +6,7 @@ import shutil
 import socket
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -31,6 +32,8 @@ class PublicCoreTests(unittest.IsolatedAsyncioTestCase):
             'SKILL_HUB_TELEMETRY_ROOT': str(self.root / 'telemetry'),
             'SKILL_HUB_KEY_PATH': str(self.root / 'no-credential')})
         self.env.start()
+        for name in ('SKILL_HUB_ENABLE_MODEL_ROUTING', 'SKILL_HUB_MODEL_PROVIDER', 'SKILL_HUB_SCORE_MODE'):
+            os.environ.pop(name, None)
         self.addCleanup(self.env.stop)
         self.network = patch.object(socket, 'create_connection', side_effect=AssertionError('Network forbidden'))
         self.network.start()
@@ -125,6 +128,8 @@ class PublicCoreTests(unittest.IsolatedAsyncioTestCase):
 
             def score(body, headers, timeout):
                 request = json.loads(body)
+                self.assertEqual(request['model'], elephant_shadow.MODEL)
+                self.assertEqual(headers['Authorization'], 'Api-Key fixture-only')
                 sent.append(request)
                 return {'answers': {key: {'type': 'noul', 'noul': .99 if key == 'skill:review-alias' else .9}
                                     for key in request['questions']},
@@ -167,6 +172,107 @@ class PublicCoreTests(unittest.IsolatedAsyncioTestCase):
                 refused = await self.call('get_route_result', {'result_id': transport['fetch']['result_id']})
                 self.assertIn(refused['error'], ('CONTENT_CHANGED', 'RESOURCE_UNAVAILABLE'))
             self.assertEqual(len(sent), 2)
+
+    async def test_liquid_default_and_baseline_preserve_dated_source_and_overlap_reads(self):
+        import hashlib
+        import elephant_shadow
+        import skill_index
+        from mcp.shared.memory import create_connected_server_and_client_session
+
+        skill_path = self.hub / 'skills/review-checklist/SKILL.md'
+        original = skill_path.read_bytes()
+        closing = original.index(b'---', 3)
+        raw = original[:closing] + b'date_added: 2026-01-02\n' + original[closing:]
+        skill_path.write_bytes(raw)
+        key_path = self.root / 'fixture-key'
+        key_path.write_text('fixture-liquid', encoding='utf-8')
+        os.environ.update(SKILL_HUB_ENABLE_MODEL_ROUTING='1', SKILL_HUB_MODEL_PROVIDER='liquid',
+                          SKILL_HUB_KEY_PATH=str(key_path))
+        self.server = serve_core.build_server(self.hub)
+        self.assertEqual(skill_index.get('review-checklist', self.hub, materialize=False)['metadata']['date_added'],
+                         '2026-01-02')
+        read_skill, read_prompt = skill_index.get, skill_index.get_prompt
+        skill_started, prompt_started = threading.Event(), threading.Event()
+        send_count = 0
+
+        def skill(name, hub, **kwargs):
+            if threading.current_thread().name.startswith('route-card'):
+                skill_started.set()
+                self.assertTrue(prompt_started.wait(2))
+            return read_skill(name, hub, **kwargs)
+
+        def prompt(name, hub, **kwargs):
+            if threading.current_thread().name.startswith('route-card'):
+                prompt_started.set()
+                self.assertTrue(skill_started.wait(2))
+            return read_prompt(name, hub, **kwargs)
+
+        def post(endpoint, send, body, headers, timeout):
+            nonlocal send_count
+            send_count += 1
+            self.assertEqual(endpoint, elephant_shadow.LIQUID_ENDPOINT)
+            self.assertEqual(headers['Authorization'], 'Bearer fixture-liquid')
+            self.assertGreater(timeout, 0)
+            self.assertLessEqual(timeout, 10)
+            request = json.loads(body)
+            self.assertEqual(request['model'], 'd1:latest')
+            return {'model': 'd1.2', 'answers': {
+                key: {'type': 'noul', 'noul': .92 if key == 'skill:review-checklist' else .1}
+                for key in request['questions']}, 'usage': {'input_tokens': 10}}, 200
+
+        with patch.object(skill_index, 'get', side_effect=skill), \
+             patch.object(skill_index, 'get_prompt', side_effect=prompt), \
+             patch.object(elephant_shadow, '_systemone_post', side_effect=post):
+            async with create_connected_server_and_client_session(self.server) as client:
+                for mode in ('dynamic', 'baseline'):
+                    if mode == 'baseline':
+                        os.environ['SKILL_HUB_SCORE_MODE'] = mode
+                    skill_started.clear()
+                    prompt_started.clear()
+                    reply = await client.call_tool('route_task', {'state': f'Review a synthetic change ({mode})'})
+                    self.assertFalse(reply.isError, reply.content)
+                    result = json.loads(reply.content[0].text)
+                    self.assertEqual(result['outcome'], 'SELECTED', result)
+                    self.assertEqual(result['retrieval']['scoring_budget']['mode'], mode)
+                    self.assertNotIn('scoring_stages', result['retrieval'])
+                    self.assertEqual(result['retrieval']['card_coverage']['derived'], 2)
+                    self.assertEqual(result['provider']['requests'][0]['resolved_model'], 'd1.2')
+                    load = result['loads']['loaded'][0]
+                    self.assertEqual(load['body'].encode(), raw)
+                    self.assertEqual(load['body_raw_sha256'], hashlib.sha256(raw).hexdigest())
+        self.assertEqual(send_count, 2)
+
+    def test_dynamic_budget_requires_retrieval_evidence_and_keeps_explicit_candidate(self):
+        from router_preparation import dynamic_scoring_pool
+
+        rows = [{'id': f'skill:fixture-{n}', 'type': 'skill'} for n in range(250)]
+        query = {'text': 'Review Python'}
+        explicit = {rows[-1]['id']}
+        full, summary = dynamic_scoring_pool(rows, query, {}, {}, explicit)
+        self.assertEqual(len(full), 250)
+        self.assertEqual(summary['reason'], 'INSUFFICIENT_RETRIEVAL_EVIDENCE')
+        ranks = {rows[0]['id']: {'keyword': 1, 'semantic': 4}}
+        focused, summary = dynamic_scoring_pool(rows, query, ranks, {}, explicit)
+        self.assertEqual(summary['reason'], 'FOCUSED_CORROBORATION')
+        self.assertEqual(focused, rows[:49] + rows[-1:])
+
+    async def test_model_profile_rejects_unknown_provider(self):
+        key_path = self.root / 'fixture-key'
+        key_path.write_text('fixture', encoding='utf-8')
+        os.environ.update(SKILL_HUB_ENABLE_MODEL_ROUTING='1', SKILL_HUB_MODEL_PROVIDER='unknown',
+                          SKILL_HUB_KEY_PATH=str(key_path))
+        with self.assertRaisesRegex(ValueError, 'SKILL_HUB_MODEL_PROVIDER'):
+            serve_core.build_server(self.hub)
+
+    async def test_liquid_rejects_unexpected_model_and_redirects(self):
+        import elephant_shadow
+
+        with patch.object(elephant_shadow, '_systemone_post',
+                          return_value=({'model': 'd1.2-ultra'}, 200)):
+            with self.assertRaisesRegex(elephant_shadow.ShadowError, 'unexpected Liquid model identity'):
+                elephant_shadow._liquid_transport(b'{}', {}, 1)
+        self.assertIsNone(elephant_shadow._NoRedirect().redirect_request(
+            None, None, 307, 'Redirect', {}, 'https://example.invalid'))
 
     async def test_no_key_returns_large_skill_and_prompt_bytes_exactly(self):
         import hashlib

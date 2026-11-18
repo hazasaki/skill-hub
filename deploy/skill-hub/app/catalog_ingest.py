@@ -12,6 +12,7 @@ Implements B1-B7 and D4/D5 requirements with strict CI gate validation:
 from __future__ import annotations
 
 from bisect import bisect_right
+from datetime import date
 import hashlib
 import json
 import os
@@ -111,6 +112,23 @@ def extract_fallback_metadata(text: str, default_name: str = '') -> Dict[str, An
     }
 
 
+def _normalize_metadata_dates(fields):
+    # Safe YAML produces date/datetime objects. Keep other values and alias
+    # structure intact while making timestamp values usable in routing JSON.
+    pending, visited = [fields], set()
+    while pending:
+        container = pending.pop()
+        if id(container) in visited:
+            continue
+        visited.add(id(container))
+        items = container.items() if isinstance(container, dict) else enumerate(container)
+        for key, value in items:
+            if isinstance(value, date):
+                container[key] = value.isoformat()
+            elif isinstance(value, (dict, list)):
+                pending.append(value)
+
+
 def parse_frontmatter(text: str, default_name: str = '') -> Tuple[Dict[str, Any], str, bool, Optional[str]]:
     """Parse safe YAML, rejecting malformed mappings and invalid risk declarations.
     
@@ -160,6 +178,8 @@ def parse_frontmatter(text: str, default_name: str = '') -> Tuple[Dict[str, Any]
                 fields[key] = json.dumps(fields[key], ensure_ascii=False)
     except (yaml.YAMLError, ValueError, TypeError) as exc:
         return {}, body, True, 'malformed frontmatter: ' + str(exc)
+
+    _normalize_metadata_dates(fields)
 
     # Normalize risk
     fields['risk'] = normalize_risk(fields.get('risk'))

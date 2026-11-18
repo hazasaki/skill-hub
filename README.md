@@ -34,6 +34,8 @@ Open **http://127.0.0.1:8769** for the dashboard. Configure a Streamable HTTP MC
 
 Try listing skills in your MCP client, then load one of the returned names with `get_skill`. For prompts, use `search_prompts` and `get_prompt`. The service health endpoint is `http://127.0.0.1:8765/health`.
 
+For optional model routing with Liquid D1 or Baseten, see the [provider setup](deploy/skill-hub/README.md#optional-model-routing).
+
 ## Add your own content
 
 Start with the examples under [examples/hub](examples/hub). Each skill lives in `skills/<name>/SKILL.md`. Put its supporting files in that skill directory. Prompt documents live in `prompts/`. Copy an example, give it a unique name and description, and replace its instructions. Include only material you have permission to share.

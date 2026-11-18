@@ -233,6 +233,40 @@ def _prepare_fused(entries, text, limit, *, fts_ranks, config, deadline, group_m
     return fallback, evidence
 
 
+def dynamic_scoring_pool(entries, query, engine_ranks, retrieval, explicit_ids):
+    """Size the single scoring pass using only request and retrieval evidence."""
+    task_state = query.get('task_state') or {}
+    terms = query_terms(' '.join((task_state.get('state') or query['text'],
+                                 task_state.get('current_step') or '',
+                                 task_state.get('desired_output') or '')), prefer_ascii=False)
+    ordered = interleave(entries)
+    corroborated = [index for index, entry in enumerate(ordered, 1)
+                    if sum(rank <= 20 for rank in engine_ranks.get(entry['id'], {}).values()) >= 2]
+    # shortcut: fixed rank and breadth cutoffs, revisit after a frozen recall/latency comparison.
+    if len(entries) <= 50:
+        target, reason = 50, 'SMALL_POOL'
+    elif (len(terms) < 2 or not corroborated or retrieval.get('degraded')
+          or retrieval.get('fallback', {}).get('used')):
+        target, reason = CANDIDATE_LIMIT, 'INSUFFICIENT_RETRIEVAL_EVIDENCE'
+    elif corroborated[-1] <= 50 and len(terms) <= 8 and len(task_state.get('artifact_types') or []) <= 1:
+        target, reason = 50, 'FOCUSED_CORROBORATION'
+    elif corroborated[-1] <= 100:
+        target, reason = 100, 'BROAD_OR_DISPERSED_CORROBORATION'
+    else:
+        target, reason = CANDIDATE_LIMIT, 'DEEP_CORROBORATION'
+    limit = min(CANDIDATE_LIMIT, max(target, len(explicit_ids)))
+    # Reserve slots for explicit requests before taking the ranked prefix, keeping scoring order.
+    priority = sorted(ordered, key=lambda entry: entry['id'] not in explicit_ids)
+    admitted = {entry['id'] for entry in priority[:limit]}
+    return [entry for entry in ordered if entry['id'] in admitted], {
+        'mode': 'dynamic', 'reason': reason, 'target': target, 'limit': limit,
+        'candidate_pool': len(entries), 'admitted': len(admitted),
+        'query_terms': len(terms), 'corroborated': len(corroborated),
+        'last_corroborated_position': corroborated[-1] if corroborated else None,
+        'explicit_candidates': len(explicit_ids),
+    }
+
+
 def interleave(entries):
     """Alternate resource kinds, so the first batch includes prompts when present."""
     skills = [e for e in entries if e['type'] == 'skill']

@@ -241,7 +241,8 @@ async def multilingual_results(lookup, kind, query, limit, hub, prompt_type=None
     return json.dumps(payload, ensure_ascii=False)
 
 
-def build_server(hub=None, materialize_root=None, *, semantic_lookup=None, core_only=False, model_key_path=None):
+def build_server(hub=None, materialize_root=None, *, semantic_lookup=None, core_only=False, model_key_path=None,
+                 model_provider='baseten'):
     if FastMCP is None:
         raise SystemExit('mcp SDK missing; install with: pip install mcp')
     mcp = FastMCP('skill-hub')
@@ -558,10 +559,14 @@ def build_server(hub=None, materialize_root=None, *, semantic_lookup=None, core_
                 str(Path(__file__).resolve().parent), hub or si.HUB)
             if transport_mode != LIVE_TRANSPORT_MODE:
                 return finish({'error': 'LIVE_MODEL_REQUIRED',
-                               'detail': 'route_task requires live Elephant execution'})
+                               'detail': 'route_task requires live model execution'})
             transport = None
             key = shadow.load_key(model_key_path if core_only else _resolve_live_key_path())
-            budget = shadow.CostBudget(LIVE_BUDGET_USD)
+            liquid = core_only and model_provider == 'liquid'
+            model = shadow.LIQUID_MODEL if liquid else shadow.MODEL
+            endpoint = shadow.LIQUID_ENDPOINT if liquid else shadow.ENDPOINT
+            price = shadow.LIQUID_PRICE_USD_PER_MILLION_INPUT if liquid else shadow.PRICE_USD_PER_MILLION_INPUT
+            budget = shadow.CostBudget(LIVE_BUDGET_USD, price_per_million_input=price)
 
             eval_dict = None
             if evaluation_json is not None:
@@ -588,10 +593,10 @@ def build_server(hub=None, materialize_root=None, *, semantic_lookup=None, core_
 
             result = chain.run_multi(
                 catalog_module=catalog, hub=resolved_hub, query={'text': render_task_state(normalized), 'task_state': normalized},
-                transport=transport, key=key, budget=budget,
+                transport=transport, key=key, budget=budget, model=model, endpoint=endpoint,
                 policy_gate=policy_gate, materialize_root=materialize_root,
                 scenario_id='skill-hub-route-task', tempr=tempr,
-                scoring_mode=os.environ.get('SKILL_HUB_SCORE_MODE', 'baseline'))
+                scoring_mode=os.environ.get('SKILL_HUB_SCORE_MODE', 'dynamic'))
             # Compatibility parameters never weaken the fixed per-kind score contract.
             payload = {
                 'schema_version': 'openbot.elephant.route_task.v2',

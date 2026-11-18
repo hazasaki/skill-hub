@@ -1,5 +1,14 @@
 # Release notes
 
+## Unreleased
+
+- Optional model routing can use Liquid D1 or Baseten. The default quickstart
+  stays local and credential-free.
+- Model routing defaults to a dynamic candidate budget, with explicit baseline
+  and staged modes.
+- Bounded parallel reads prepare verified candidate cards. YAML dates and
+  timestamps can now pass through model routing without changing source bytes.
+
 ## v0.1.0 — Local catalog and verified resource routing
 
 The first tagged public release includes a Docker Compose quickstart, a browser dashboard and a Streamable HTTP MCP service.

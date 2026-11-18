@@ -19,9 +19,13 @@ def build_server(hub=None):
     key_file = os.environ.get('SKILL_HUB_KEY_PATH') if model_enabled else None
     if model_enabled and (not key_file or not Path(key_file).is_file()):
         raise ValueError('Model routing requires an explicit SKILL_HUB_KEY_PATH file.')
+    provider = os.environ.get('SKILL_HUB_MODEL_PROVIDER', 'baseten')
+    if model_enabled and provider not in ('baseten', 'liquid'):
+        raise ValueError('SKILL_HUB_MODEL_PROVIDER must be baseten or liquid.')
     index.build(hub)
     server = skill_mcp.build_server(
-        hub, os.environ.get('SKILL_HUB_MATERIALIZE_ROOT'), core_only=True, model_key_path=Path(key_file) if model_enabled else None)
+        hub, os.environ.get('SKILL_HUB_MATERIALIZE_ROOT'), core_only=True,
+        model_key_path=Path(key_file) if model_enabled else None, model_provider=provider)
     server.settings.host = '0.0.0.0'
     server.settings.port = 8765
     server.settings.transport_security = TransportSecuritySettings(

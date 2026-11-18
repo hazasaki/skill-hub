@@ -11,7 +11,7 @@
     },
     {
       "file": "deploy/skill-hub/app/catalog_ingest.py",
-      "sha256": "e2e14b2cb01c3d38cfeb02627fa741729e6747ea498941610d3fd8cbf1940831"
+      "sha256": "ae5d1f4807fb3f1fe9e7b12163e647831ace17bdef3600185b27263e8ddfb425"
     },
     {
       "file": "deploy/skill-hub/app/catalog_maintenance.py",
@@ -31,11 +31,11 @@
     },
     {
       "file": "deploy/skill-hub/app/elephant_runtime.py",
-      "sha256": "fb257feaa449b88110446ecb979efc51034b7716a59ea34fe7adc929941a65ac"
+      "sha256": "80ad7931b69e98bff751c6c640c23ee5d35c20dbf984ff5218ad61e30ac4dd82"
     },
     {
       "file": "deploy/skill-hub/app/elephant_shadow.py",
-      "sha256": "7073033b8bd21896d3beeadea385f6f756c63a0a152b24a44768a7503535afec"
+      "sha256": "82b4b01634a57cb913612e13c47c4195a7a0326f574ddb5c7d352bca5305bf1f"
     },
     {
       "file": "deploy/skill-hub/app/github_intake.py",
@@ -135,7 +135,7 @@
     },
     {
       "file": "deploy/skill-hub/app/router_preparation.py",
-      "sha256": "b8b8acd95bdf9eae16e811e5b4db68216f6732ce8de0edeeb87c29d37a755e66"
+      "sha256": "881da7e480132197b3cfc0460604f0614528beadb06ada2408c76979d6b99702"
     },
     {
       "file": "deploy/skill-hub/app/routing_dataset.py",
@@ -163,7 +163,7 @@
     },
     {
       "file": "deploy/skill-hub/app/skill_mcp.py",
-      "sha256": "20ea9e7de28105ea9a86b85b3376477d0fa917d6b18a135c76ad09d89bceff21"
+      "sha256": "ab0d2d352c997afa3add77c04ecbba9378657bca943a8e8dbef529ba130c803a"
     },
     {
       "file": "deploy/skill-hub/app/skill_quality_binding.py",
@@ -227,7 +227,7 @@
     },
     {
       "file": "deploy/skill-hub/serve_core.py",
-      "sha256": "a76c269078f2b9acaca9dc4762cd25a531ebf440aac0be384414a8bf900c62d9"
+      "sha256": "4e1ca657d37a9382c3c63ff8b7a43014f620d8ff46463b67817b69d700324d40"
     }
   ]
 }

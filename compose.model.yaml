@@ -1,0 +1,13 @@
+services:
+  skill-hub:
+    environment:
+      SKILL_HUB_ENABLE_MODEL_ROUTING: '1'
+      SKILL_HUB_MODEL_PROVIDER: ${SKILL_HUB_MODEL_PROVIDER:-baseten}
+      SKILL_HUB_KEY_PATH: /run/secrets/skill_hub_model_key
+      SKILL_HUB_SCORE_MODE: ${SKILL_HUB_SCORE_MODE-dynamic}
+    secrets:
+      - skill_hub_model_key
+
+secrets:
+  skill_hub_model_key:
+    file: ${SKILL_HUB_MODEL_KEY_FILE:?Set SKILL_HUB_MODEL_KEY_FILE to your provider key file}

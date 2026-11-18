@@ -26,6 +26,7 @@ not a billing reconciliation: the recorded `cost_provenance` says so.
 from __future__ import annotations
 
 import json
+import re
 import time
 import urllib.error
 import urllib.request
@@ -34,6 +35,9 @@ from pathlib import Path
 SCHEMA_VERSION = 'openbot.r4.elephant_shadow.v1'
 ENDPOINT = 'https://inference.baseten.co/v1/systemone'
 MODEL = 'decision-models/baseten-elephant-9b-latest'
+LIQUID_ENDPOINT = 'https://api.liquid.ai/typesafe/v1/systemone'
+LIQUID_MODEL = 'd1:latest'
+LIQUID_PRICE_USD_PER_MILLION_INPUT = 0.02
 PRICE_USD_PER_MILLION_INPUT = 0.035
 DEFAULT_TIMEOUT_SECONDS = 15
 DEFAULT_MAX_RETRIES = 0
@@ -156,13 +160,16 @@ def call(*, request_payload, key, budget=None, endpoint=ENDPOINT, timeout=DEFAUL
     body = json.dumps(request_payload, ensure_ascii=False).encode('utf-8')
     if not key:
         raise ShadowError('AUTH', 'no provider key supplied')
+    liquid = endpoint == LIQUID_ENDPOINT
+    if liquid and request_payload.get('model') != LIQUID_MODEL:
+        raise ShadowError('CLIENT_ERROR', 'Skill Hub requires the Liquid d1:latest model')
     if budget is not None:
         reservation = budget.reserve(len(body))
     else:
         reservation = None
-    headers = {'Content-Type': 'application/json', 'Authorization': 'Api-Key ' + key}
-
-    send = transport or _urllib_transport
+    authorization = ('Bearer ' if liquid else 'Api-Key ') + key
+    headers = {'Content-Type': 'application/json', 'Authorization': authorization}
+    send = transport or (_liquid_transport if liquid else _urllib_transport)
     attempts, last = 0, None
     started = time.perf_counter()
     while attempts <= max(0, int(max_retries)):
@@ -213,6 +220,7 @@ def call(*, request_payload, key, budget=None, endpoint=ENDPOINT, timeout=DEFAUL
     return {
         'schema_version': SCHEMA_VERSION,
         'endpoint': endpoint, 'model': request_payload.get('model', MODEL),
+        **({'resolved_model': raw.get('model')} if liquid else {}),
         'language': language, 'scenario': scenario,
         'status': status, 'attempts': attempts, 'retries': attempts - 1,
         'latency_ms': latency_ms, 'timeout_seconds': timeout,
@@ -230,9 +238,27 @@ def call(*, request_payload, key, budget=None, endpoint=ENDPOINT, timeout=DEFAUL
 
 def _urllib_transport(body, headers, timeout):
     """The real transport. A provider error body is discarded, never recorded."""
-    request = urllib.request.Request(ENDPOINT, data=body, headers=headers, method='POST')
+    return _systemone_post(ENDPOINT, urllib.request.urlopen, body, headers, timeout)
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+def _liquid_transport(body, headers, timeout):
+    opener = urllib.request.build_opener(_NoRedirect())
+    raw, status = _systemone_post(LIQUID_ENDPOINT, opener.open, body, headers, timeout)
+    model = raw.get('model') if isinstance(raw, dict) else None
+    if not isinstance(model, str) or not re.fullmatch(r'd1(?::latest|(?:\.[0-9]+)*)', model):
+        raise ShadowError('INVALID_RESPONSE', 'unexpected Liquid model identity', status=status)
+    return raw, status
+
+
+def _systemone_post(endpoint, send, body, headers, timeout):
+    request = urllib.request.Request(endpoint, data=body, headers=headers, method='POST')
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with send(request, timeout=timeout) as response:
             return json.loads(response.read()), response.status
     except urllib.error.HTTPError as error:
         raise ShadowError(classify_status(error.code), 'provider refused the request',
